@@ -124,9 +124,9 @@ static unsigned long zero_ul;
 static unsigned long one_ul = 1;
 static unsigned long long_max = LONG_MAX;
 #ifdef CONFIG_SCHED_HIKARI
-static int hikari_shift_max         = 10;
-static int hikari_ewma_shift_max    = 8;
-static int hikari_topapp_boost_max  = 2;
+static unsigned int hikari_shift_max         = 10;
+static unsigned int hikari_ewma_shift_max    = 8;
+static unsigned int hikari_topapp_boost_max  = 2;
 #endif
 #ifdef CONFIG_PRINTK
 static int ten_thousand = 10000;
@@ -1768,7 +1768,7 @@ static struct ctl_table kern_table[] = {
 		.data		= &sysctl_sched_hikari_shift,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
-		.proc_handler	= proc_dou8vec_minmax,
+		.proc_handler	= proc_douintvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &hikari_shift_max,
 	},
@@ -1777,7 +1777,7 @@ static struct ctl_table kern_table[] = {
 		.data		= &sysctl_sched_hikari_ewma_shift,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
-		.proc_handler	= proc_dou8vec_minmax,
+		.proc_handler	= proc_douintvec_minmax,
 		.extra1		= SYSCTL_ONE,
 		.extra2		= &hikari_ewma_shift_max,
 	},
@@ -1786,7 +1786,7 @@ static struct ctl_table kern_table[] = {
 		.data		= &sysctl_sched_hikari_topapp_boost,
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
-		.proc_handler	= proc_dou8vec_minmax,
+		.proc_handler	= proc_douintvec_minmax,
 		.extra1		= SYSCTL_ZERO,
 		.extra2		= &hikari_topapp_boost_max,
 	},

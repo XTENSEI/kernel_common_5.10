@@ -93,10 +93,10 @@ void hikari_apply_wake_shift(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		return;
 
 	/*
-	 * Defensive clamp: proc_dou8vec_minmax already enforces 1..8 on the
-	 * sysctl, but a 0 or out-of-range value here would either divide by
-	 * zero conceptually (shift by 0 saturates the multiplier) or shift
-	 * by >= 64 which is UB.  Fall back to the default.
+	 * Defensive clamp: the sysctl handler enforces 1..8 on writes, but
+	 * a 0 or out-of-range value here would either divide by zero
+	 * conceptually (shift by 0 saturates the multiplier) or shift by
+	 * >= 64 which is UB.  Fall back to the default.
 	 */
 	if (!eshift || eshift > 8)
 		eshift = 3;
