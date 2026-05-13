@@ -1393,8 +1393,17 @@ struct task_struct {
 	/* PF_IO_WORKER */
 	ANDROID_KABI_USE(1, void *pf_io_worker);
 
-	ANDROID_KABI_RESERVE(2);
-	ANDROID_KABI_RESERVE(3);
+	/*
+	 * Hikari wake-latency vruntime shift -- two u64 fields packed into
+	 * the existing RESERVE(2) and RESERVE(3) slots via
+	 * _ANDROID_KABI_REPLACE.  Struct size and the offset of every
+	 * following field are preserved.  See kernel/sched/hikari.c.
+	 */
+	_ANDROID_KABI_REPLACE(ANDROID_KABI_RESERVE(2); ANDROID_KABI_RESERVE(3),
+			      struct {
+				      u64 wait_ewma;
+				      u64 last_wait_sum;
+			      } hikari);
 	ANDROID_KABI_RESERVE(4);
 	ANDROID_KABI_RESERVE(5);
 

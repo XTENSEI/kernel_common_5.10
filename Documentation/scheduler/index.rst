@@ -14,6 +14,7 @@ Linux Scheduler
     sched-domains
     sched-capacity
     sched-energy
+    sched-hikari
     sched-nice-design
     sched-rt-group
     sched-stats

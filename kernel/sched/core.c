@@ -3321,6 +3321,17 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	memset(&p->se.statistics, 0, sizeof(p->se.statistics));
 #endif
 
+#ifdef CONFIG_SCHED_HIKARI
+	/*
+	 * Children inherit p->se via dup_task_struct(); the parent's
+	 * accumulated wake-latency state is meaningless for the child
+	 * (last_wait_sum is a snapshot of the parent's wait_sum, not the
+	 * child's).  Zero it so the first wake takes the priming path.
+	 */
+	p->hikari.wait_ewma     = 0;
+	p->hikari.last_wait_sum = 0;
+#endif
+
 	RB_CLEAR_NODE(&p->dl.rb_node);
 	init_dl_task_timer(&p->dl);
 	init_dl_inactive_task_timer(&p->dl);

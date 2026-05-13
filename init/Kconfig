@@ -1288,6 +1288,29 @@ config SCHED_AUTOGROUP
 	  desktop applications.  Task group autogeneration is currently based
 	  upon task session.
 
+config SCHED_HIKARI
+	bool "Hikari wake-latency vruntime shift"
+	default y
+	depends on SCHEDSTATS
+	help
+	  Shift the vruntime of waking tasks backwards by a fraction of
+	  their recent average wake-to-run wait time.  Tasks the scheduler
+	  has been failing to serve get prioritised on the next wake; tasks
+	  being served well get nothing.  No score, no reweight, no priority
+	  math -- pure vruntime nudge, capped at sysctl_sched_latency.
+
+	  Tunable at runtime via /proc/sys/kernel/sched_hikari_shift
+	  (0 disables) and /proc/sys/kernel/sched_hikari_ewma_shift.
+	  Depends on schedstats also being enabled at runtime
+	  (kernel.sched_schedstats=1); otherwise wait_sum stays zero and
+	  Hikari is a silent no-op.
+
+	  When CONFIG_SCHED_HIKARI=y and the runtime knob is non-zero, the
+	  scheduler is NOT byte-for-byte equivalent to vanilla CFS.  Set
+	  kernel.sched_hikari_shift=0 to restore stock placement.
+
+	  If unsure, say Y.
+
 config RT_SOFTINT_OPTIMIZATION
        bool "Improve RT scheduling during long softint execution"
        depends on ARM64

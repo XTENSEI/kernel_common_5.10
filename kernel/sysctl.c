@@ -109,6 +109,11 @@
 /* External variables not in a header file. */
 extern int extra_free_kbytes;
 
+#ifdef CONFIG_SCHED_HIKARI
+extern unsigned int sysctl_sched_hikari_shift;
+extern unsigned int sysctl_sched_hikari_ewma_shift;
+#endif
+
 /* Constants used for minimum and  maximum */
 #ifdef CONFIG_LOCKUP_DETECTOR
 static int sixty = 60;
@@ -117,6 +122,9 @@ static int sixty = 60;
 static unsigned long zero_ul;
 static unsigned long one_ul = 1;
 static unsigned long long_max = LONG_MAX;
+#ifdef CONFIG_SCHED_HIKARI
+static int hikari_shift_max = 8;
+#endif
 #ifdef CONFIG_PRINTK
 static int ten_thousand = 10000;
 #endif
@@ -1751,6 +1759,26 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
+#ifdef CONFIG_SCHED_HIKARI
+	{
+		.procname	= "sched_hikari_shift",
+		.data		= &sysctl_sched_hikari_shift,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &hikari_shift_max,
+	},
+	{
+		.procname	= "sched_hikari_ewma_shift",
+		.data		= &sysctl_sched_hikari_ewma_shift,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ONE,
+		.extra2		= &hikari_shift_max,
+	},
+#endif
 #ifdef CONFIG_SCHED_DEBUG
 	{
 		.procname	= "sched_min_granularity_ns",

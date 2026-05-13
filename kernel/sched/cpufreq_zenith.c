@@ -5457,6 +5457,31 @@ struct zenith_policy {
 	u64			cluster_wake_pulse_until_ns;
 	u64			cluster_wake_last_eval_ns;
 
+	/* Patch H1-1 Hikari wake-demand deadline.  Stamped from
+	 * outside the eval path by zenith_signal_wake_demand(), which
+	 * is called from the Hikari wake-latency vruntime shift hook
+	 * (kernel/sched/hikari.c) when a task's wait-time EWMA
+	 * saturates the shift cap -- a leading-edge "this CPU is
+	 * starving a runnable task" signal that arrives roughly one
+	 * scheduling event before zenith's own util-based ramp would
+	 * see it.
+	 *
+	 * Cross-context writer, exactly like fg_transition_pulse_-
+	 * until_ns below: the writer is called from arbitrary
+	 * scheduler context, possibly with rq->lock held, so both
+	 * writer and the eval-path reader use WRITE_ONCE / READ_ONCE.
+	 * On 64-bit kernels the access is naturally atomic; the
+	 * READ_ONCE / WRITE_ONCE pair documents intent and prevents
+	 * the compiler from re-issuing or tearing the load/store.
+	 *
+	 * Reuses the cluster_wake_pulse tier: floor magnitude comes
+	 * from cluster_wake_pulse_floor_pct, duration from cluster_-
+	 * wake_pulse_ms.  Setting either knob to 0 disables both the
+	 * idle-gap-triggered cluster_wake_pulse arm and the Hikari-
+	 * triggered arm without any additional Kconfig coupling.
+	 */
+	u64			hikari_wake_demand_until_ns;
+
 	/* Patch 1.9 fg-transition pulse deadline.  Stamped by the
 	 * sched_wakeup_new tracepoint probe (zenith_probe_wakeup_-
 	 * new) when a foreground task is woken for the first time
@@ -10867,6 +10892,40 @@ brutal_entry_deferred:
 			if (freq < floor) {
 				freq = floor;
 				tp_path = "cluster_wake_pulse";
+			}
+		}
+	}
+
+	/* 3c''''''-pre-hwd. Hikari wake-demand soft floor (Patch H1-1).
+	 *
+	 * Mirrors the cluster_wake_pulse tier above but is armed from
+	 * outside the eval path by zenith_signal_wake_demand(), which
+	 * the Hikari wake-latency vruntime shift calls on saturation
+	 * of its EWMA cap.  Reuses cluster_wake_pulse_floor_pct as the
+	 * floor magnitude so the two tiers cannot disagree on how high
+	 * a freshly-rescued cluster should run; disabling either
+	 * floor_pct or pulse_ms disables both arming pathways at once.
+	 *
+	 * Runs after cluster_wake_pulse so when both deadlines are
+	 * live the floor magnitudes are identical and the second
+	 * pass is a no-op; if only the Hikari deadline is live (no
+	 * recent idle gap, but a task is starving on a busy CPU)
+	 * this is the only path that can raise the floor.
+	 */
+	if (!pin_to_target && policy->max &&
+	    z_policy->tunables->cluster_wake_pulse_floor_pct) {
+		u64 until = READ_ONCE(z_policy->hikari_wake_demand_until_ns);
+
+		if (until && ktime_get_ns() < until) {
+			unsigned int floor =
+				(policy->max / 100) *
+				z_policy->tunables->cluster_wake_pulse_floor_pct;
+
+			if (floor > policy->max)
+				floor = policy->max;
+			if (freq < floor) {
+				freq = floor;
+				tp_path = "hikari_wake_demand";
 			}
 		}
 	}
@@ -22726,6 +22785,53 @@ static void zenith_probe_wakeup_new(void *data, struct task_struct *p)
 		return;
 
 	WRITE_ONCE(z_policy->fg_transition_pulse_until_ns,
+		   ktime_get_ns() +
+		   (u64)pulse_ms * NSEC_PER_MSEC);
+}
+
+/* Patch H1-1: Hikari wake-demand signal entry point.
+ *
+ * Called from kernel/sched/hikari.c::hikari_apply_wake_shift() when a
+ * task's wait-time EWMA saturates the Hikari shift cap on the given
+ * CPU.  Reuses the cluster_wake_pulse soft-floor tier: floor magnitude
+ * from cluster_wake_pulse_floor_pct, duration from cluster_wake_pulse_ms.
+ *
+ * Safety / context: identical to zenith_probe_wakeup_new() above.  Runs
+ * in arbitrary scheduler context with rq->lock potentially held; no
+ * sleeping primitives; cpufreq_cpu_get_raw() and the governor_data
+ * read are lockless, with the same teardown reasoning (zenith_stop()'s
+ * unregister-governor path is synchronous w.r.t. in-flight callbacks).
+ *
+ * No-op when:
+ *   - cluster_wake_pulse_ms == 0 (the whole tier is disabled), or
+ *   - the CPU is not currently governed by zenith, or
+ *   - zenith_stop() raced and policy->governor_data is NULL.
+ *
+ * The store is a single WRITE_ONCE u64; on 64-bit arches it is
+ * naturally atomic, and Hikari is gated to CONFIG_SCHEDSTATS which on
+ * this tree only enables on 64-bit Android targets.
+ */
+void zenith_signal_wake_demand(int cpu)
+{
+	struct cpufreq_policy *policy;
+	struct zenith_policy *z_policy;
+	struct zenith_tunables *t;
+	unsigned int pulse_ms;
+
+	policy = cpufreq_cpu_get_raw(cpu);
+	if (!policy || policy->governor != &zenith_gov)
+		return;
+	z_policy = READ_ONCE(policy->governor_data);
+	if (!z_policy)
+		return;
+	t = z_policy->tunables;
+	if (!t)
+		return;
+	pulse_ms = READ_ONCE(t->cluster_wake_pulse_ms);
+	if (!pulse_ms)
+		return;
+
+	WRITE_ONCE(z_policy->hikari_wake_demand_until_ns,
 		   ktime_get_ns() +
 		   (u64)pulse_ms * NSEC_PER_MSEC);
 }
