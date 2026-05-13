@@ -112,6 +112,7 @@ extern int extra_free_kbytes;
 #ifdef CONFIG_SCHED_HIKARI
 extern unsigned int sysctl_sched_hikari_shift;
 extern unsigned int sysctl_sched_hikari_ewma_shift;
+extern unsigned int sysctl_sched_hikari_topapp_boost;
 #endif
 
 /* Constants used for minimum and  maximum */
@@ -123,7 +124,9 @@ static unsigned long zero_ul;
 static unsigned long one_ul = 1;
 static unsigned long long_max = LONG_MAX;
 #ifdef CONFIG_SCHED_HIKARI
-static int hikari_shift_max = 8;
+static int hikari_shift_max         = 10;
+static int hikari_ewma_shift_max    = 8;
+static int hikari_topapp_boost_max  = 2;
 #endif
 #ifdef CONFIG_PRINTK
 static int ten_thousand = 10000;
@@ -1776,7 +1779,16 @@ static struct ctl_table kern_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dou8vec_minmax,
 		.extra1		= SYSCTL_ONE,
-		.extra2		= &hikari_shift_max,
+		.extra2		= &hikari_ewma_shift_max,
+	},
+	{
+		.procname	= "sched_hikari_topapp_boost",
+		.data		= &sysctl_sched_hikari_topapp_boost,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dou8vec_minmax,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= &hikari_topapp_boost_max,
 	},
 #endif
 #ifdef CONFIG_SCHED_DEBUG

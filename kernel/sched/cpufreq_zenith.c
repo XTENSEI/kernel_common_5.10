@@ -22836,6 +22836,88 @@ void zenith_signal_wake_demand(int cpu)
 		   (u64)pulse_ms * NSEC_PER_MSEC);
 }
 
+/* Hook H1-2 read helpers: advisory snapshots of zenith policy state
+ * for the Hikari placement modulator.  All three follow the same
+ * shape as zenith_signal_wake_demand() above -- lockless
+ * cpufreq_cpu_get_raw() + governor identity check + READ_ONCE of a
+ * value zenith already publishes -- and return a "false / safe-
+ * default" result when zenith is not the active governor on the CPU,
+ * not built, or torn down mid-call.
+ *
+ * The reads can race with zenith's own updates and may observe stale
+ * values for up to a few ms.  Hikari only uses them as a hint (early
+ * return / shift cap / cgroup boost gate), so staleness is fine.
+ */
+bool zenith_cpu_screen_off(int cpu)
+{
+	struct cpufreq_policy *policy;
+	struct zenith_policy *z_policy;
+	struct zenith_tunables *t;
+
+	policy = cpufreq_cpu_get_raw(cpu);
+	if (!policy || policy->governor != &zenith_gov)
+		return false;
+	z_policy = READ_ONCE(policy->governor_data);
+	if (!z_policy)
+		return false;
+	t = z_policy->tunables;
+	if (!t)
+		return false;
+
+	/* tunables->screen_state: 1 = ON, 0 = OFF.  Read with the same
+	 * READ_ONCE discipline zenith's own eval path uses.
+	 */
+	return READ_ONCE(t->screen_state) == 0;
+}
+
+bool zenith_cpu_audio_active(int cpu)
+{
+	struct cpufreq_policy *policy;
+	struct zenith_policy *z_policy;
+
+	policy = cpufreq_cpu_get_raw(cpu);
+	if (!policy || policy->governor != &zenith_gov)
+		return false;
+	z_policy = READ_ONCE(policy->governor_data);
+	if (!z_policy)
+		return false;
+
+	/* z_policy->audio_active is the cached result of zenith's own
+	 * audio-active detector (ALSA fd refcount + comm-walk +
+	 * audio_hyst_ms sticky window).  Refresh is driven by the
+	 * frequency eval path; we read the last-published value.
+	 */
+	return READ_ONCE(z_policy->audio_active);
+}
+
+bool zenith_task_is_top_app(struct task_struct *p)
+{
+#if IS_ENABLED(CONFIG_CPUSETS)
+	struct cgroup_subsys_state *css;
+	bool match = false;
+
+	if (!p)
+		return false;
+
+	/* Same shape as zenith_task_in_top_app() above, kept separate
+	 * so the public read does not depend on the internal helper's
+	 * static linkage.  Caller must NOT already hold rcu_read_lock.
+	 */
+	rcu_read_lock();
+	css = task_css(p, cpuset_cgrp_id);
+	if (css && css->cgroup && css->cgroup->kn) {
+		const char *name = css->cgroup->kn->name;
+
+		if (name && !strcmp(name, ZENITH_TOP_APP_CGROUP_NAME))
+			match = true;
+	}
+	rcu_read_unlock();
+	return match;
+#else
+	return false;
+#endif
+}
+
 /* Patch B9-1: android_vh_arch_set_freq_scale observer.
  *
  * The hook fires from arch_set_freq_scale() in drivers/base/

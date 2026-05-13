@@ -50,15 +50,47 @@ unsigned int sysctl_sched_hikari_shift __read_mostly = 4;
  */
 unsigned int sysctl_sched_hikari_ewma_shift __read_mostly = 3;
 
+/*
+ * Optional top-app shift multiplier.  When non-zero, tasks running in
+ * the "top-app" cpuset cgroup get their shift left-shifted by this
+ * value (still capped at sysctl_sched_latency), amplifying the
+ * placement nudge for the foreground UI process group.
+ *
+ * Default 0 (disabled) so the helper has zero overhead unless the
+ * user opts in.  Range 0..2; values above 2 saturate against the
+ * sysctl_sched_latency ceiling on every meaningful EWMA.
+ *
+ * Stacks with zenith's existing top_app_floor_pct frequency floor;
+ * tune both together if you turn this on.
+ */
+unsigned int sysctl_sched_hikari_topapp_boost __read_mostly;
+
 void hikari_apply_wake_shift(struct cfs_rq *cfs_rq, struct sched_entity *se)
 {
 	struct task_struct *p = container_of(se, struct task_struct, se);
 	unsigned int hshift = READ_ONCE(sysctl_sched_hikari_shift);
 	unsigned int eshift = READ_ONCE(sysctl_sched_hikari_ewma_shift);
+	unsigned int boost  = READ_ONCE(sysctl_sched_hikari_topapp_boost);
 	u64 cur_wait_sum, last_wait_sum, delta, ewma, shift_amt, floor, target;
+	int cpu;
 
 	if (!hshift)
 		return;					/* runtime-disabled */
+
+	cpu = task_cpu(p);
+
+	/*
+	 * Hook H1-2(a): screen-off bypass.  When zenith reports the
+	 * panel is blanked there is no UX consumer for a vruntime nudge;
+	 * skip the EWMA update and the placement work entirely.  The
+	 * task's last_wait_sum is left in place so the next on-screen
+	 * wake resumes with the existing snapshot rather than re-priming.
+	 *
+	 * Stubs to false (i.e. always proceed) when zenith is not built
+	 * or not the active governor on this CPU.
+	 */
+	if (zenith_cpu_screen_off(cpu))
+		return;
 
 	/*
 	 * Defensive clamp: proc_dou8vec_minmax already enforces 1..8 on the
@@ -91,6 +123,7 @@ void hikari_apply_wake_shift(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	if (!last_wait_sum || cur_wait_sum < last_wait_sum) {
 		p->hikari.last_wait_sum = cur_wait_sum;
 		p->hikari.wait_ewma     = 0;
+		p->hikari.last_shift    = 0;
 		return;
 	}
 
@@ -102,6 +135,35 @@ void hikari_apply_wake_shift(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	p->hikari.wait_ewma = ewma;
 
 	shift_amt = min_t(u64, ewma >> hshift, sysctl_sched_latency);
+
+	/*
+	 * Hook H1-2(b): tighten the cap during audio playback.  Audio
+	 * pipelines are paced by the codec, not by CFS; large vruntime
+	 * reorderings can produce audible jitter even without missing a
+	 * deadline.  Half the scheduler latency horizon is enough to
+	 * stay useful as a tiebreaker without disturbing playback.
+	 */
+	if (zenith_cpu_audio_active(cpu)) {
+		u64 audio_cap = sysctl_sched_latency >> 1;
+
+		if (audio_cap && shift_amt > audio_cap)
+			shift_amt = audio_cap;
+	}
+
+	/*
+	 * Hook H1-2(c): optional top-app shift multiplier.  Gated on the
+	 * sysctl being non-zero so the cpuset cgroup walk is skipped
+	 * entirely in the default configuration.  Result is clamped back
+	 * to sysctl_sched_latency.
+	 */
+	if (boost && shift_amt && zenith_task_is_top_app(p)) {
+		u64 boosted = shift_amt << boost;
+
+		shift_amt = min_t(u64, boosted, sysctl_sched_latency);
+	}
+
+	p->hikari.last_shift = shift_amt;
+
 	if (!shift_amt)
 		return;
 
@@ -115,7 +177,7 @@ void hikari_apply_wake_shift(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	 * is not the active governor or is not built.
 	 */
 	if (shift_amt == sysctl_sched_latency)
-		zenith_signal_wake_demand(task_cpu(p));
+		zenith_signal_wake_demand(cpu);
 
 	target = se->vruntime - shift_amt;
 	floor  = cfs_rq->min_vruntime - sysctl_sched_latency;

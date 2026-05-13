@@ -1394,17 +1394,20 @@ struct task_struct {
 	ANDROID_KABI_USE(1, void *pf_io_worker);
 
 	/*
-	 * Hikari wake-latency vruntime shift -- two u64 fields packed into
-	 * the existing RESERVE(2) and RESERVE(3) slots via
-	 * _ANDROID_KABI_REPLACE.  Struct size and the offset of every
-	 * following field are preserved.  See kernel/sched/hikari.c.
+	 * Hikari wake-latency vruntime shift -- three u64 fields packed
+	 * into the existing RESERVE(2), RESERVE(3) and RESERVE(4) slots
+	 * via _ANDROID_KABI_REPLACE.  Struct size and the offset of every
+	 * following field are preserved.  last_shift is the most recently
+	 * applied shift (post audio cap, post top-app boost) and is
+	 * exposed through /proc/<pid>/sched for tuning visibility.  See
+	 * kernel/sched/hikari.c.
 	 */
-	_ANDROID_KABI_REPLACE(ANDROID_KABI_RESERVE(2); ANDROID_KABI_RESERVE(3),
+	_ANDROID_KABI_REPLACE(ANDROID_KABI_RESERVE(2); ANDROID_KABI_RESERVE(3); ANDROID_KABI_RESERVE(4),
 			      struct {
 				      u64 wait_ewma;
 				      u64 last_wait_sum;
+				      u64 last_shift;
 			      } hikari);
-	ANDROID_KABI_RESERVE(4);
 	ANDROID_KABI_RESERVE(5);
 
 #ifdef CONFIG_SYSVIPC

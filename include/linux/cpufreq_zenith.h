@@ -25,6 +25,14 @@
  *   No-op when cluster_wake_pulse is disabled or when the CPU is
  *   not governed by zenith.
  *
+ *   zenith_cpu_screen_off(), zenith_cpu_audio_active() and
+ *   zenith_task_is_top_app() are advisory read helpers used by
+ *   Hikari to modulate the placement nudge based on zenith's view
+ *   of the system.  All three are lockless reads of state zenith
+ *   updates from its own paths; the values may be a few ms stale
+ *   but callers only use them as a hint.  All three return false
+ *   when zenith is not the active governor on the queried CPU.
+ *
  * All hooks stub out cleanly when zenith is not built so callers
  * can stay unconditional.
  */
@@ -33,14 +41,22 @@
 
 #include <linux/types.h>
 
+struct task_struct;
+
 #if IS_ENABLED(CONFIG_CPU_FREQ_GOV_ZENITH)
 extern void zenith_set_drm_vblank_us(unsigned int us);
 void zenith_drm_vblank_event(void);
 void zenith_signal_wake_demand(int cpu);
+bool zenith_cpu_screen_off(int cpu);
+bool zenith_cpu_audio_active(int cpu);
+bool zenith_task_is_top_app(struct task_struct *p);
 #else
 static inline void zenith_set_drm_vblank_us(unsigned int us) { }
 static inline void zenith_drm_vblank_event(void) { }
 static inline void zenith_signal_wake_demand(int cpu) { }
+static inline bool zenith_cpu_screen_off(int cpu) { return false; }
+static inline bool zenith_cpu_audio_active(int cpu) { return false; }
+static inline bool zenith_task_is_top_app(struct task_struct *p) { return false; }
 #endif
 
 #endif /* _LINUX_CPUFREQ_ZENITH_H */

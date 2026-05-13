@@ -19,6 +19,7 @@ struct sched_entity;
 
 extern unsigned int sysctl_sched_hikari_shift;
 extern unsigned int sysctl_sched_hikari_ewma_shift;
+extern unsigned int sysctl_sched_hikari_topapp_boost;
 
 void hikari_apply_wake_shift(struct cfs_rq *cfs_rq, struct sched_entity *se);
 

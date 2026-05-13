@@ -3330,6 +3330,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	 */
 	p->hikari.wait_ewma     = 0;
 	p->hikari.last_wait_sum = 0;
+	p->hikari.last_shift    = 0;
 #endif
 
 	RB_CLEAR_NODE(&p->dl.rb_node);

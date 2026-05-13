@@ -52,20 +52,25 @@ rb-tree ordering invariants are preserved.
 Per-task state
 ==============
 
-Two ``u64`` fields are packed into the existing
-``ANDROID_KABI_RESERVE(2)`` and ``ANDROID_KABI_RESERVE(3)`` slots of
-``struct task_struct`` via ``_ANDROID_KABI_REPLACE``:
+Three ``u64`` fields are packed into the existing
+``ANDROID_KABI_RESERVE(2)``, ``ANDROID_KABI_RESERVE(3)`` and
+``ANDROID_KABI_RESERVE(4)`` slots of ``struct task_struct`` via
+``_ANDROID_KABI_REPLACE``:
 
 * ``hikari.wait_ewma``     -- smoothed recent wake-to-run wait time
 * ``hikari.last_wait_sum`` -- snapshot of ``se.statistics.wait_sum`` at
   the previous wake, used to compute the delta
+* ``hikari.last_shift``    -- the shift actually applied on the last
+  wake (post audio cap, post top-app boost), zero on the priming
+  paths.  Exposed read-only via ``/proc/<pid>/sched`` for tuning
+  visibility.
 
 Struct size and the offsets of every following field are preserved, so
 this is KMI-safe by construction.
 
-Both fields are zeroed in ``__sched_fork()`` so the first wake after
-fork takes the priming path (see below) rather than treating the
-parent's accumulated wait_sum as the child's own.
+All three fields are zeroed in ``__sched_fork()`` so the first wake
+after fork takes the priming path (see below) rather than treating
+the parent's accumulated wait_sum as the child's own.
 
 Priming and reset handling
 ==========================
@@ -84,14 +89,15 @@ The hook detects two situations and skips the shift on that wake:
    next observed ``wait_sum`` is *less* than ``last_wait_sum`` the u64
    subtraction would wrap to a near-maximal delta and poison the EWMA
    for many subsequent wakes.  Treat this as a reset: re-snapshot
-   ``last_wait_sum``, drop ``wait_ewma`` to zero, return.
+   ``last_wait_sum``, drop ``wait_ewma`` and ``last_shift`` to zero,
+   return.
 
 Tunables
 ========
 
-Two ``u8`` sysctls live under ``/proc/sys/kernel/``:
+Three ``u8`` sysctls live under ``/proc/sys/kernel/``:
 
-``sched_hikari_shift`` (default ``4``, range ``0..8``)
+``sched_hikari_shift`` (default ``4``, range ``0..10``)
 	Right-shift applied to the EWMA before subtraction.
 
 	* ``0`` disables Hikari at runtime; the hook becomes a no-op and
@@ -100,6 +106,9 @@ Two ``u8`` sysctls live under ``/proc/sys/kernel/``:
 	  a steady 5 ms wait yields a ~0.3 ms shift, which is well below
 	  ``sysctl_sched_latency`` and acts as a tiebreaker against equally
 	  starved tasks rather than as a large preferential boost.
+	* Values above ``8`` are accepted as tuning headroom but the
+	  resulting per-wake shift quickly drops below the scheduler's
+	  own minimum granularity and stops mattering in practice.
 
 ``sched_hikari_ewma_shift`` (default ``3``, range ``1..8``)
 	EWMA smoothing constant.
@@ -109,6 +118,18 @@ Two ``u8`` sysctls live under ``/proc/sys/kernel/``:
 	* ``8`` -- ~256-sample window.
 	* Default ``3`` is ``((old * 7) + delta) >> 3``, mild smoothing
 	  resistant to one-off latency outliers.
+
+``sched_hikari_topapp_boost`` (default ``0``, range ``0..2``)
+	Optional left-shift multiplier applied to ``shift_amt`` for tasks
+	running in the ``top-app`` cpuset cgroup.  See Patch H1-2(c)
+	below.
+
+	* ``0`` disables the boost.  This is the default and makes the
+	  helper a no-op -- the cpuset cgroup walk is skipped entirely.
+	* ``1`` doubles the shift, ``2`` quadruples it (still clamped to
+	  ``sysctl_sched_latency``).
+	* Stacks with zenith's existing ``top_app_floor_pct`` frequency
+	  floor; tune both knobs together if you enable this.
 
 Dependency on runtime schedstats
 ================================
@@ -195,17 +216,61 @@ Class scope and inheritance
   in ``include/linux/cpufreq_zenith.h`` and resolved at link time
   without an exported symbol.
 
+Context modulation (Patch H1-2)
+===============================
+
+Three additional zenith reads inside the wake-shift hook, all
+lockless and all stub-to-false when zenith is not built or not the
+active governor on the queried CPU.
+
+(a) **Screen-off bypass.**  If ``zenith_cpu_screen_off(cpu)`` returns
+    true the hook returns immediately, before any EWMA update.  No
+    UX consumer is watching the placement nudge while the panel is
+    blanked; ``wait_ewma`` and ``last_wait_sum`` are left in place so
+    the next on-screen wake resumes with the existing snapshot
+    rather than re-priming.
+
+(b) **Audio cap.**  If ``zenith_cpu_audio_active(cpu)`` returns true,
+    ``shift_amt`` is capped at ``sysctl_sched_latency / 2``.  Audio
+    pipelines are paced by the codec, not by CFS; large vruntime
+    reorderings can produce audible jitter even without missing a
+    buffer deadline.  Half the latency horizon stays useful as a
+    tiebreaker without disturbing playback.
+
+(c) **Top-app boost.**  When ``kernel.sched_hikari_topapp_boost`` is
+    non-zero and ``zenith_task_is_top_app(p)`` returns true,
+    ``shift_amt`` is left-shifted by the sysctl value (still clamped
+    to ``sysctl_sched_latency``).  The cpuset cgroup walk is gated
+    behind the sysctl, so the default (boost=0) costs nothing.
+
+All three reads land inside the existing
+``hikari_apply_wake_shift`` body; no new hook sites in ``fair.c``,
+``core.c`` or the zenith eval path.
+
+Debug visibility
+================
+
+When ``CONFIG_SCHED_HIKARI`` is enabled, ``/proc/<pid>/sched`` (and
+the per-task section of ``/proc/sched_debug``) prints two extra
+fields::
+
+	hikari.wait_ewma                            :          xxxxx.xxxxxx
+	hikari.last_shift                           :          xxxxx.xxxxxx
+
+Both are in nanoseconds and use the standard ``SPLIT_NS`` formatting
+shared with the other ``PN()`` task-debug fields.
+
+``wait_ewma`` is the smoothed wake-to-run wait; ``last_shift`` is the
+value most recently subtracted from the task's vruntime, after the
+audio cap and the optional top-app boost.  Both stay at zero on the
+priming paths so a task that has never been pushed by Hikari shows
+zeroes rather than stale state.
+
 Future integration points
 =========================
 
-The three remaining Hikari/Zenith hooks discussed during design but
+Two remaining Hikari/Zenith hooks discussed during design but
 deferred from this patch:
-
-* **Zenith -> Hikari context modulation.**  Read zenith's
-  ``render_active`` / ``audio_active`` per-policy bits (and an as-yet
-  unimplemented screen-on/off bit) to multiply or zero ``shift_amt``.
-  Blocked on zenith not exposing a screen-off bit at the public API
-  level.
 
 * **Per-rq EWMA aggregate as a zenith input.**  Sum or max of Hikari
   per-task EWMAs on a runqueue, fed to zenith alongside util.
@@ -215,4 +280,5 @@ deferred from this patch:
   hard ``sysctl_sched_latency`` cap with ``zenith_effective_latency
   (cpu)`` so the shift cap tracks zenith's hispeed / brutal / peak-
   headroom pacing.  Architecturally the cleanest hook, but the
-  tightest coupling.  Defer until Patch H1-1 has measurable wins.
+  tightest coupling.  Defer until Patch H1-1 and H1-2 have
+  measurable wins.
