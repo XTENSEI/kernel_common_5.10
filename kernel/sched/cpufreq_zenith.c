@@ -12983,14 +12983,25 @@ static void zenith_at_get_policy_guardrails(struct zenith_policy *z_policy,
 	}
 }
 
-static unsigned int zenith_at_state_to_profile(unsigned int state)
+static unsigned int zenith_at_state_to_profile(struct zenith_policy *z_policy,
+						unsigned int state)
 {
 	switch (state) {
 	case ZENITH_AT_STATE_EFFICIENCY:
 	case ZENITH_AT_STATE_THERMAL_RECOVERY:
 		return ZENITH_PROFILE_BATTERY;
 	case ZENITH_AT_STATE_LATENCY:
+		return ZENITH_PROFILE_PERFORMANCE;
 	case ZENITH_AT_STATE_SUSTAINED_PERF:
+		/* Games get the strongest bake; heavy non-game
+		 * sustained load still gets PERFORMANCE.  The game
+		 * check is the same effective-mode helper the hot
+		 * path uses, so selene + the in-kernel detector both
+		 * drive it.
+		 */
+		if (zenith_eff_game_mode(
+				READ_ONCE(z_policy->tunables->game_mode)))
+			return ZENITH_PROFILE_GAMING;
 		return ZENITH_PROFILE_PERFORMANCE;
 	case ZENITH_AT_STATE_BALANCED:
 	default:
@@ -13033,21 +13044,21 @@ static unsigned int zenith_at_profile_for_state(struct zenith_policy *z_policy,
 						unsigned int state)
 {
 	if (!z_policy->tunables->auto_tune_cluster_aware)
-		return zenith_at_state_to_profile(state);
+		return zenith_at_state_to_profile(z_policy, state);
 
 	switch (z_policy->cluster_class) {
 	case ZENITH_CLUSTER_LITTLE:
 		if (state == ZENITH_AT_STATE_LATENCY ||
 		    state == ZENITH_AT_STATE_SUSTAINED_PERF)
 			return ZENITH_PROFILE_BALANCED;
-		return zenith_at_state_to_profile(state);
+		return zenith_at_state_to_profile(z_policy, state);
 	case ZENITH_CLUSTER_PRIME:
 		if (state == ZENITH_AT_STATE_BALANCED)
 			return ZENITH_PROFILE_PERFORMANCE;
-		return zenith_at_state_to_profile(state);
+		return zenith_at_state_to_profile(z_policy, state);
 	case ZENITH_CLUSTER_BIG:
 	default:
-		return zenith_at_state_to_profile(state);
+		return zenith_at_state_to_profile(z_policy, state);
 	}
 }
 
