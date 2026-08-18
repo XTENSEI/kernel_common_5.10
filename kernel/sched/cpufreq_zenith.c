@@ -5348,20 +5348,39 @@ static atomic_t zenith_alsa_active_fds = ATOMIC_INIT(0);
  *
  * When any scenario flag (camera, render, frame, game, memstall,
  * thermal_slope, psi_cpu) is set, drop the V1 classifier reschedule
- * cadence from the default 10 s down to ~1.5 s.  Real-world bursty
+ * cadence from the default 5 s down to ~1.5 s.  Real-world bursty
  * workloads (camera open, app launch, scroll) finish in 1-3 s on
- * modern phone-class hardware; the 10 s default means V1 runs
+ * modern phone-class hardware; the 5 s default means V1 runs
  * exactly once during the burst, sees a half-saturated window, and
  * picks BALANCED -- making LATENCY commit only after the burst is
  * already over.
  *
+ * The rearm block additionally fast-lanes on busy-load signals with
+ * no scenario flag: a saturated window (sat_pct >= hi_sat), a
+ * committed SUSTAINED_PERF / THERMAL_RECOVERY state, or the
+ * PELT UTIL_RISING trend flag.  This keeps the classifier following
+ * real workload ramps (games without selene, heavy sync) at 1.5 s
+ * granularity instead of diluting them across a 5 s window, and
+ * settles back to the slow cadence the moment load drops -- the
+ * busy periods are exactly when the extra eval cost is justified.
+ *
  * This faster window only applies to the *V1 reschedule* cadence;
  * the V2 hysteresis windows continue to count in the same units (so
- * a 2-window hysteresis is now ~3 s instead of ~20 s).  V3
- * calibration interval is unchanged because V3 already has its own
- * timer (auto_tune_v3_interval_ms).
+ * a 2-window hysteresis is now ~3 s instead of ~10 s during fast
+ * periods).  V3 calibration interval is unchanged because V3
+ * already has its own timer (auto_tune_v3_interval_ms).
  */
 #define ZENITH_AUTO_TUNE_FAST_PERIOD_MS	1500
+
+/* Hot-path burst kick.  After this many consecutive saturated tick
+ * samples, the hot path wakes the classifier early (at the fast
+ * period) so a burst registers at ~1.5 s instead of the next 5 s
+ * window.  Throttled to one kick per ZENITH_AT_KICK_MIN_NS; once
+ * the worker sees the busy window, the F1 rearm keeps it on the
+ * fast cadence by itself.
+ */
+#define ZENITH_AT_BURST_KICK_STREAK	2
+#define ZENITH_AT_KICK_MIN_NS		(2000ULL * NSEC_PER_MSEC)
 
 /* Stage 4 / Patch I -- governor-wide input observability counters.
  *
@@ -5792,6 +5811,15 @@ struct zenith_policy {
 	atomic_t		at_samples_total;
 	atomic_t		at_samples_saturated;
 	u64			at_last_events;
+	u64			at_last_win_ns;	/* boottime ns at the start of the
+					 * previous classification window;
+					 * the true window duration is the
+					 * events-rate denominator (fast
+					 * windows are 1.5 s, not 5 s) */
+	atomic_t		at_sat_streak;	/* consecutive saturated tick
+					 * samples (burst-kick trigger) */
+	u64			at_last_kick_ns;	/* last hot-path kick
+						 * (kick throttle) */
 	unsigned int		at_last_total;
 	unsigned int		at_last_saturated;
 	unsigned int		at_last_sat_pct;
@@ -9148,6 +9176,9 @@ static inline void zenith_at_v_reset_window(struct zenith_policy *z_policy)
 	atomic_set(&z_policy->at_samples_saturated, 0);
 	z_policy->at_last_events =
 		atomic64_read(&zenith_auto_input_events);
+	z_policy->at_last_win_ns = ktime_get_boottime_ns();
+	atomic_set(&z_policy->at_sat_streak, 0);
+	z_policy->at_last_kick_ns = 0;
 	z_policy->at_pending_windows = 0;
 }
 
@@ -9204,6 +9235,27 @@ static inline unsigned int zenith_batt_scaled(unsigned int ms,
  * zenith_get_next_freq() below.
  */
 static unsigned int zenith_hikari_policy_floor(struct cpufreq_policy *policy);
+
+/* Hot-path burst kick.  Called from the per-tick eval path when the
+ * consecutive-saturated streak crosses the threshold: wake the
+ * classifier at the fast period so a load burst is classified in
+ * ~1.5 s instead of a full 5 s window.  mod_delayed_work is safe
+ * from this context (workqueue accepts atomic callers); the throttle
+ * bounds it to one kick per 2 s and the F1 rearm takes over once the
+ * worker sees the busy window.  at_last_kick_ns is a benign torn-
+ * write race (worst case one extra or one skipped kick).
+ */
+static void zenith_at_maybe_kick(struct zenith_policy *z_policy)
+{
+	u64 now = ktime_get_ns();
+	u64 last = READ_ONCE(z_policy->at_last_kick_ns);
+
+	if (last && now - last < ZENITH_AT_KICK_MIN_NS)
+		return;
+	WRITE_ONCE(z_policy->at_last_kick_ns, now);
+	mod_delayed_work(system_wq, &z_policy->at_work,
+			 msecs_to_jiffies(ZENITH_AUTO_TUNE_FAST_PERIOD_MS));
+}
 
 static unsigned int zenith_get_next_freq(struct zenith_policy *z_policy,
 					 unsigned long util, unsigned long max_cap)
@@ -9819,8 +9871,14 @@ skip_input_boost:
 
 		if (z_policy->tunables->auto_tune) {
 			atomic_inc(&z_policy->at_samples_total);
-			if (load_pct >= z_policy->tunables->auto_tune_sat_load_pct)
+			if (load_pct >= z_policy->tunables->auto_tune_sat_load_pct) {
 				atomic_inc(&z_policy->at_samples_saturated);
+				if (atomic_inc_return(&z_policy->at_sat_streak) >=
+				    ZENITH_AT_BURST_KICK_STREAK)
+					zenith_at_maybe_kick(z_policy);
+			} else {
+				atomic_set(&z_policy->at_sat_streak, 0);
+			}
 		}
 
 		/* ignore_nice_load: dampen the load percentage by the
@@ -15838,11 +15896,30 @@ static void zenith_auto_tune_work(struct work_struct *w)
 	sat_pct = total ? (saturated * 100 / total) : 0;
 	/* events per 2s, i.e. half-events/s * 2, kept integer-friendly:
 	 * ZENITH_AUTO_TUNE_HI_EVENTS_X2=4 corresponds to > 2.0/s, and
-	 * ZENITH_AUTO_TUNE_LO_EVENTS_X2=2 corresponds to < 1.0/s, over
-	 * the ZENITH_AUTO_TUNE_PERIOD_MS window (10s by default).
+	 * ZENITH_AUTO_TUNE_LO_EVENTS_X2=2 corresponds to < 1.0/s.
+	 *
+	 * The rate is computed against the *actual* elapsed window,
+	 * not the nominal slow period: the F1 fast cadence (1.5 s)
+	 * shrinks the window under scenario flags / busy load, and
+	 * dividing a fast-window delta by the 5 s nominal would
+	 * undercount the input rate by 3.3x and misclassify an
+	 * actively-used device as idle.  The window is clamped so a
+	 * late-scheduled worker (or the first run after arming) can't
+	 * produce a degenerate rate.
 	 */
-	events_rate_x2 = (unsigned int)((events_delta * 2000) /
-					ZENITH_AUTO_TUNE_PERIOD_MS);
+	{
+		u64 win_ns = ktime_get_boottime_ns() -
+			     z_policy->at_last_win_ns;
+		u64 win_ms = div_u64(win_ns, NSEC_PER_MSEC);
+
+		if (win_ms < 100)
+			win_ms = 100;
+		if (win_ms > 60000)
+			win_ms = 60000;
+		events_rate_x2 = (unsigned int)div64_u64(
+					events_delta * 2000, win_ms);
+		z_policy->at_last_win_ns = ktime_get_boottime_ns();
+	}
 
 	if (sat_pct >= t->auto_tune_hi_sat_pct &&
 	    events_rate_x2 >= t->auto_tune_hi_events_x2)
@@ -16312,8 +16389,10 @@ rearm:
 
 	{
 		/* F1: pick the faster reschedule cadence whenever a
-		 * scenario flag is active in the just-completed window.
-		 * The check uses at_last_flags (set above by the
+		 * scenario flag is active in the just-completed window,
+		 * or the window came out busy without one (see the
+		 * fast_mask + busy-load conditions below).  The check
+		 * uses at_last_flags / at_last_state (set above by the
 		 * decision path), so a scenario that ended IN this
 		 * window still gets one fast follow-up window before
 		 * we settle back to the slow cadence -- catches the
@@ -16327,9 +16406,25 @@ rearm:
 			ZENITH_AT_FLAG_GAME   |
 			ZENITH_AT_FLAG_MEMSTALL |
 			ZENITH_AT_FLAG_THERMAL_SLOPE |
-			ZENITH_AT_FLAG_PSI_CPU;
+			ZENITH_AT_FLAG_PSI_CPU |
+			ZENITH_AT_FLAG_UTIL_RISING;
 		unsigned int period =
-			(z_policy->at_last_flags & fast_mask) ?
+			((z_policy->at_last_flags & fast_mask) ||
+			 /* Busy-load fast lane: a window that came out
+			  * saturated (>= hi_sat) or committed SUSTAINED_
+			  * PERF / THERMAL_RECOVERY means real load is
+			  * running without a scenario flag (e.g. a game
+			  * with selene off, or heavy background sync).
+			  * Stay on the 1.5 s cadence so the classifier
+			  * keeps up with the ramp instead of diluting
+			  * it over a 5 s window; it settles back to the
+			  * slow cadence the moment load drops.
+			  */
+			 sat_pct >= t->auto_tune_hi_sat_pct ||
+			 z_policy->at_last_state ==
+				ZENITH_AT_STATE_SUSTAINED_PERF ||
+			 z_policy->at_last_state ==
+				ZENITH_AT_STATE_THERMAL_RECOVERY) ?
 			ZENITH_AUTO_TUNE_FAST_PERIOD_MS :
 			ZENITH_AUTO_TUNE_PERIOD_MS;
 
