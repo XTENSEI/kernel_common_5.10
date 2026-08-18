@@ -16022,7 +16022,8 @@ static void zenith_auto_tune_work(struct work_struct *w)
 				flags |= ZENITH_AT_FLAG_FRAME;
 		}
 
-		if (t->auto_tune_sustained_gaming && READ_ONCE(t->game_mode)) {
+		if (t->auto_tune_sustained_gaming &&
+		    zenith_eff_game_mode(READ_ONCE(t->game_mode))) {
 			flags |= ZENITH_AT_FLAG_GAME;
 			if (state == ZENITH_AT_STATE_LATENCY) {
 				state = ZENITH_AT_STATE_SUSTAINED_PERF;
