@@ -945,53 +945,7 @@ config HIKARI_ZENITH_HINT
 	  If unsure, say Y.
 
 
-config SELENE
-	bool "Selene game detection & profile engine"
-	depends on SMP
-	default y
-	help
-	  In-kernel game detection engine that maintains a hash table
-	  of game package names (531 built-in games) and automatically
-	  detects games via periodic cgroup top-app scanning.
 
-	  When a game is detected, peer drivers (lucid, koakuma, zenith
-	  etc.) are notified via a notifier chain so they can apply
-	  performance tweaks.
-
-	  Exposes /sys/kernel/selene/ with active_game, game_count,
-	  foreground_app (write), game_list_add, etc.
-
-	  If unsure, say Y.
-
-config LUCID
-	bool "Lucid game mode task killer & OOM manager"
-	depends on SELENE
-	default y
-	help
-	  Listens to selene game events.  On game start, deprioritises
-	  known background processes by raising their OOM score, and
-	  caches old values for restoration on game stop.
-
-	  Background process patterns are configurable at runtime via
-	  /sys/kernel/lucid/kill_list_add, kill_list_del, etc.
-
-	  If unsure, say Y.
-
-config KOAKUMA
-	bool "Koakuma game preloader"
-	depends on SELENE
-	default y
-	help
-	  Listens to selene game events.  When a game starts, walks the
-	  game process file-backed memory mappings and calls
-	  page_cache_sync_readahead() to preload game binary, library,
-	  and data pages into the page cache.
-
-	  This reduces game loading time by warming the cache before
-	  the game actually needs those pages.  Configurable via
-	  /sys/kernel/koakuma/ (enabled, max_preload_mb).
-
-	  If unsure, say Y.
 
 config ZENITH_ALLOWLIST
 	bool "Zenith device boot allowlist"

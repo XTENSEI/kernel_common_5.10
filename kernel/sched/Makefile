@@ -38,6 +38,3 @@ obj-$(CONFIG_MEMBARRIER) += membarrier.o
 obj-$(CONFIG_CPU_ISOLATION) += isolation.o
 obj-$(CONFIG_PSI) += psi.o
 obj-$(CONFIG_HIKARI) += hikari.o
-obj-$(CONFIG_SELENE) += selene.o selene_gamelist.o
-obj-$(CONFIG_LUCID) += lucid.o
-obj-$(CONFIG_KOAKUMA) += koakuma.o
