@@ -218,31 +218,6 @@ config IYASHI_DEBUG_MSG
 
 	  If unsure, say Y.
 
-config KASUMI
-	bool "Kasumi thermal dampening"
-	default y
-	help
-	  Enable Kasumi (霞) thermal dampening.  Kasumi sits in the
-	  thermal_zone_get_temp() path and may subtract a configurable
-	  offset from the reported temperature, delaying thermal
-	  throttling during short bursts.
-
-	  When disabled, temperature readings pass through unchanged
-	  and /sys/kernel/kasumi/ is not created.
-
-	  If unsure, say Y.
-
-config KASUMI_DEBUG_MSG
-	bool "Kasumi verbose boot diagnostics"
-	depends on KASUMI
-	default y
-	help
-	  When enabled, Kasumi prints self-test results and other
-	  verbose boot-time diagnostics via pr_info.  Disable to strip
-	  those strings from the kernel image.
-
-	  If unsure, say Y.
-
 config DEVFREQ_THERMAL
 	bool "Generic device cooling support"
 	depends on PM_DEVFREQ

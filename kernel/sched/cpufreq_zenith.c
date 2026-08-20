@@ -8355,23 +8355,6 @@ static void zenith_policy_game_auto_tick(struct zenith_policy *z_policy)
  * thermal_zone_get_temp() and dampens the reported temperature.
  * For Zenith's game_perf_burst guardrail we want the *real* (un-
  * dampened) value so the FSM can't be fooled by a configured
- * Kasumi offset; the dampened value still goes to the framework /
- * userspace as before.  Forward-declared here (no public header
- * for Kasumi) -- defined and EXPORT_SYMBOL_GPL'd by Kasumi.
- *
- * Returns the last raw value seen by kasumi_dampen(), in millideg C.
- * Returns 0 if Kasumi has never dampened a reading (e.g. Kasumi
- * disabled, or no thermal zone the filter accepted has been read
- * yet) -- caller treats 0 as "fall back to whatever I have".
- */
-#if IS_ENABLED(CONFIG_KASUMI)
-extern int kasumi_get_last_real_mc(void);
-extern void kasumi_apply_profile(unsigned int profile);
-#else
-static inline int kasumi_get_last_real_mc(void) { return 0; }
-static inline void kasumi_apply_profile(unsigned int profile) { }
-#endif
-
 #if IS_ENABLED(CONFIG_IYASHI)
 extern void iyashi_apply_profile(unsigned int profile);
 #else
@@ -8458,8 +8441,7 @@ static int zenith_gpb_get_temp_dc(struct zenith_policy *z_policy)
 	}
 
 	if (tzd && !IS_ERR(tzd) && !thermal_zone_get_temp(tzd, &temp)) {
-		real = kasumi_get_last_real_mc();
-		return real > 0 ? real : temp;
+		return temp;
 	}
 
 	pct = zenith_policy_thermal_pressure_pct(z_policy);
@@ -15395,7 +15377,6 @@ static void zenith_apply_profile(struct zenith_tunables *t, unsigned int prof)
 	 * defaults in both subsystems so this is a no-op on the
 	 * cold-boot path.
 	 */
-	kasumi_apply_profile(prof);
 	iyashi_apply_profile(prof);
 	equilibrium_apply_profile(prof);
 	nocturne_apply_profile(prof);
@@ -23668,13 +23649,9 @@ static int __init zenith_gov_init(void)
 	 * multi-line banner survives a grep, and so the verify
 	 * script's `grep -E 'Zenith :'` finds the banner intact.
 	 *
-	 * Small per-subsystem signatures are also emitted from
-	 * hikari_init / kasumi_sysfs_init / iyashi_init with their own
-	 * "Hikari :" / "Kasumi :" / "Iyashi :" prefixes, so each
-	 * subsystem is individually grep-able.
 	 */
 	#ifdef CONFIG_ZENITH_DEBUG_MSG
-	pr_info("Zenith: v4 hybrid cpufreq governor initialized (Zenith/Hikari/Kasumi/Iyashi)\n");
+	pr_info("Zenith: cpufreq governor initialized\n");
 	#endif /* CONFIG_ZENITH_DEBUG_MSG */
 
 	/* Allocate the initial RCU comm tables from the in-tree default
