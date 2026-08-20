@@ -64,8 +64,6 @@
 #include <linux/ktime.h>
 #include <linux/math64.h>
 #include <linux/sysfs.h>
-#include <linux/hikari.h>
-#include <linux/selene.h>
 #include <linux/notifier.h>
 #include <linux/power_supply.h>
 #include <linux/time.h>
@@ -9230,12 +9228,6 @@ static inline unsigned int zenith_batt_scaled(unsigned int ms,
 }
 
 /*
- * Forward declaration; defined near the bottom of this file
- * alongside the Hikari notifier subscription.  Used from
- * zenith_get_next_freq() below.
- */
-static unsigned int zenith_hikari_policy_floor(struct cpufreq_policy *policy);
-
 /* Hot-path burst kick.  Called from the per-tick eval path when the
  * consecutive-saturated streak crosses the threshold: wake the
  * classifier at the fast period so a load burst is classified in
@@ -11646,16 +11638,6 @@ apply_uclamp_max_cap:
 		}
 		/*
 		 * Hikari floor application on the early-return path.
-		 * Raises the cached freq if Hikari has a published
-		 * wake-demand floor that exceeds it.  No-op when no
-		 * floor is published or when Hikari is off.
-		 */
-		{
-			unsigned int hf = zenith_hikari_policy_floor(policy);
-
-			if (hf && hf > z_policy->next_freq)
-				return hf;
-		}
 		return z_policy->next_freq;
 	}
 
@@ -11972,17 +11954,6 @@ apply_uclamp_max_cap:
 	 * target_freq if Hikari has a published wake-demand floor
 	 * that exceeds it.  No-op when no floor is published or when
 	 * Hikari is off.  Applied AFTER all in-governor decision
-	 * tiers so the floor acts as a hard, additive lower bound on
-	 * the wake-time freq -- it can lift Zenith's choice but
-	 * never lower it.
-	 */
-	{
-		unsigned int hf = zenith_hikari_policy_floor(policy);
-
-		if (hf && hf > target_freq)
-			target_freq = hf;
-	}
-
 	return target_freq;
 }
 
@@ -15426,7 +15397,6 @@ static void zenith_apply_profile(struct zenith_tunables *t, unsigned int prof)
 	 */
 	kasumi_apply_profile(prof);
 	iyashi_apply_profile(prof);
-	hikari_apply_profile(prof);
 	equilibrium_apply_profile(prof);
 	nocturne_apply_profile(prof);
 }
@@ -23663,90 +23633,6 @@ zenith_probe_scheduler_tick(void *data, struct rq *rq)
  * unexpected locking.  The added latency from waiting one tick
  * is acceptable given the floor TTL is on the order of 50ms.
  */
-static int zenith_hikari_freq_hint_cb(struct notifier_block *nb,
-				      unsigned long event, void *data)
-{
-	struct hikari_freq_hint *hint = data;
-	struct zenith_cpu *z_cpu;
-	struct zenith_policy *z_policy;
-
-	if (event != HIKARI_NOTIFIER_WAKE_DEMAND)
-		return NOTIFY_DONE;
-	if (!hint)
-		return NOTIFY_DONE;
-	if (hint->cpu >= nr_cpu_ids)
-		return NOTIFY_DONE;
-
-	z_cpu = &per_cpu(zenith_cpu, hint->cpu);
-	z_policy = READ_ONCE(z_cpu->z_policy);
-	if (!z_policy)
-		return NOTIFY_DONE;
-	if (!z_policy->policy)
-		return NOTIFY_DONE;
-
-	return NOTIFY_OK;
-}
-
-static struct notifier_block zenith_hikari_nb = {
-	.notifier_call = zenith_hikari_freq_hint_cb,
-};
-
-/* ------------------------------------------------------------ */
-/* Selene game detection integration                            */
-/* ------------------------------------------------------------ */
-static int zenith_selene_nb_fn(struct notifier_block *nb,
-                               unsigned long event, void *data)
-{
-	switch (event) {
-	case SELENE_EVENT_GAME_START:
-		WRITE_ONCE(zenith_game_auto_active_until_ns,
-			   ktime_get_ns() + 30ULL * NSEC_PER_SEC);
-		atomic_notifier_call_chain(&zenith_game_mode_nh, 1, NULL);
-		break;
-	case SELENE_EVENT_GAME_STOP:
-		WRITE_ONCE(zenith_game_auto_active_until_ns, 0);
-		atomic_notifier_call_chain(&zenith_game_mode_nh, 0, NULL);
-		break;
-	}
-	return NOTIFY_OK;
-}
-
-static struct notifier_block zenith_selene_nb = {
-	.notifier_call = zenith_selene_nb_fn,
-};
-
-/*
- * Walk the policy's CPUs, take the max Hikari floor across them,
- * and clamp to the policy's [min..max] range.  Returns 0 if no
- * floor is currently published on any CPU in the policy.  Cheap
- * when Hikari is off (hikari_get_floor_khz early-returns 0 on a
- * single READ_ONCE inside hikari_enabled()).
- */
-static unsigned int zenith_hikari_policy_floor(struct cpufreq_policy *policy)
-{
-	unsigned int floor = 0;
-	unsigned int f;
-	int cpu;
-
-	if (!policy)
-		return 0;
-
-	for_each_cpu(cpu, policy->cpus) {
-		f = hikari_get_floor_khz(cpu);
-		if (f > floor)
-			floor = f;
-	}
-
-	if (!floor)
-		return 0;
-
-	if (floor < policy->min)
-		floor = policy->min;
-	if (floor > policy->max)
-		floor = policy->max;
-	return floor;
-}
-
 static int __init zenith_gov_init(void)
 {
 	int ret;
@@ -24026,39 +23912,6 @@ static int __init zenith_gov_init(void)
 				zenith_probe_scheduler_tick, NULL);
 		pr_err("Zenith: cpufreq_register_governor failed (%d)\n", ret);
 		return ret;
-	}
-
-	/*
-	 * Subscribe to Hikari's wake-time hint chain.  Failure here is
-	 * non-fatal: Zenith works fine without Hikari hints, and the
-	 * direct hikari_get_floor_khz() read in zenith_get_next_freq()
-	 * is still functional with or without subscription.  Log the
-	 * outcome for observability.
-	 */
-	{
-		int hret = hikari_register_cpufreq_notifier(&zenith_hikari_nb);
-
-		if (hret)
-			pr_warn("Zenith: hikari notifier register failed (%d), continuing without subscription\n",
-				hret);
-		else
-			pr_info("Zenith: subscribed to hikari wake-demand chain\n");
-	}
-
-	/*
-	 * Subscribe to Selene\'s game detection chain.  On game start
-	 * we set a 30-second game-mode auto latch so zenith\'s hot-path
-	 * overlays (higher freq targets, lower rate limits) activate.
-	 * On game stop the latch is cleared.
-	 */
-	{
-		int sret = selene_register_notifier(&zenith_selene_nb);
-
-		if (sret)
-			pr_warn("Zenith: selene notifier register failed (%d), continuing without game detection\n",
-				sret);
-		else
-			pr_info("Zenith: subscribed to selene game detection chain\n");
 	}
 
 	return 0;
