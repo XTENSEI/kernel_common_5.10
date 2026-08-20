@@ -189,35 +189,6 @@ config CPU_IDLE_THERMAL
 	  idle cycle.
 endif
 
-config IYASHI
-	bool "Iyashi thermal performance floor"
-	default y
-	help
-	  Enable the Iyashi (癒し) performance floor.  Iyashi runs from
-	  thermal_cdev_update() and may relax the cooling target chosen
-	  by the active thermal governor when the bound thermal zones
-	  are still far from their trip points, holding the CPU at a
-	  configurable performance floor (default 90% of max OPP).
-
-	  As soon as the closest bound trip is within near_limit_offset_c
-	  degrees (default 5C), Iyashi steps aside and lets the framework
-	  throttle normally.
-
-	  Tunables live under /sys/kernel/iyashi/.
-
-	  If unsure, say Y.
-
-config IYASHI_DEBUG_MSG
-	bool "Iyashi verbose boot diagnostics"
-	depends on IYASHI
-	default y
-	help
-	  When enabled, Iyashi prints self-test results and other
-	  verbose boot-time diagnostics via pr_info.  Disable to strip
-	  those strings from the kernel image.
-
-	  If unsure, say Y.
-
 config DEVFREQ_THERMAL
 	bool "Generic device cooling support"
 	depends on PM_DEVFREQ

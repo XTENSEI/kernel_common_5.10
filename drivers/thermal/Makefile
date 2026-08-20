@@ -26,7 +26,6 @@ thermal_sys-$(CONFIG_CPU_FREQ_THERMAL)	+= cpufreq_cooling.o
 thermal_sys-$(CONFIG_CPU_IDLE_THERMAL)	+= cpuidle_cooling.o
 
 # Iyashi performance-floor clamp (XTENSEI)
-thermal_sys-$(CONFIG_IYASHI)		+= iyashi.o
 
 
 # devfreq cooling
