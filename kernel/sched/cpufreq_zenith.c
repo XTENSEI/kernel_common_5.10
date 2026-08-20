@@ -11607,8 +11607,6 @@ apply_uclamp_max_cap:
 					      z_policy->cached_uclamp_max,
 					      true);
 		}
-		/*
-		 * Hikari floor application on the early-return path.
 		return z_policy->next_freq;
 	}
 
@@ -11920,11 +11918,6 @@ apply_uclamp_max_cap:
 			z_policy->util_history_count++;
 	}
 
-	/*
-	 * Hikari floor application on the main return path.  Raises
-	 * target_freq if Hikari has a published wake-demand floor
-	 * that exceeds it.  No-op when no floor is published or when
-	 * Hikari is off.  Applied AFTER all in-governor decision
 	return target_freq;
 }
 
