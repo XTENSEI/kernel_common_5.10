@@ -22,8 +22,6 @@
  */
 #include "sched.h"
 
-#include <linux/hikari.h>
-
 #include <trace/hooks/sched.h>
 
 EXPORT_TRACEPOINT_SYMBOL_GPL(sched_stat_runtime);
@@ -5726,12 +5724,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int should_iowait_boost;
 
 	/*
-	 * Hikari: stamp wake-side enqueue time on opted-in tasks.
-	 * Cheap no-op when Hikari is disabled (one READ_ONCE).
-	 */
-	hikari_on_enqueue(p, rq);
-
-	/*
 	 * The code below (indirectly) updates schedutil which looks at
 	 * the cfs_rq utilization to select a frequency.
 	 * Let's add the task's estimated utilization to the cfs_rq's
@@ -7055,19 +7047,6 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 		return target_cpu;
 
 	/*
-	 * Hikari placement steering.  Yields to the vendor RVH
-	 * (handled above) but takes precedence over the default
-	 * select_task_rq_fair logic when engaged.  Returns -1 if
-	 * Hikari has no opinion.  Only applies to actual wake-ups
-	 * (SD_BALANCE_WAKE), not fork / exec balance.
-	 */
-	if (sd_flag & SD_BALANCE_WAKE) {
-		int hikari_cpu = hikari_select_cpu(p, prev_cpu, wake_flags);
-
-		if (hikari_cpu >= 0)
-			return hikari_cpu;
-	}
-
 	if (sd_flag & SD_BALANCE_WAKE) {
 		record_wakee(p);
 
@@ -7489,18 +7468,6 @@ done: __maybe_unused;
 		hrtick_start_fair(rq, p);
 
 	update_misfit_status(p, rq);
-
-	/*
-	 * Hikari: task is now picked to run.  Compute the wait
-	 * delta against the stamp set in enqueue_task_fair(), fold
-	 * into the per-task wait EWMA, and fire wake-time actuators
-	 * (uclamp boost / cpufreq floor hint) if the EWMA crosses
-	 * the configured threshold.  The hook name is on_dequeue
-	 * for symmetry with on_enqueue; the actual rq state change
-	 * that triggers it is the entity leaving the rb-tree via
-	 * pick_next_entity() in the path above.
-	 */
-	hikari_on_dequeue(p, rq);
 
 	return p;
 
