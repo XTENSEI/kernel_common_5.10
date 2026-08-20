@@ -570,6 +570,56 @@ fire even with the gate on; the cpufreq driver must call
 
 ---
 
+## Device triage (boot / random reboot / flicker)
+
+For reports like "some devices boot, some don't", "random reboot",
+or "screen flickers", collect one artifact set **per device** and
+compare across devices of the same model:
+
+1. **Non-booting device** — grab the previous boot's pstore and the
+   boot reason; a mismatched `dtbo`/vendor blob vs. a booting unit
+   is the #1 cause of "boots here, not there":
+
+   ```bash
+   adb shell 'cat /sys/fs/pstore/dmesg-ramoops* 2>/dev/null' > pstore.txt
+   adb shell getprop sys.boot.reason
+   ```
+
+   Then `diff` that device's `dtbo` and vendor blobs against a
+   booting one of the same model.
+
+2. **Random reboot** — capture kernel **and** userspace logs. A
+   clean `SYS_RESTART` with empty cmd and no panic/oops beforehand
+   means *userspace* commanded the reboot (framework watchdog,
+   thermald, or a manual `reboot`) — `logcat` names the caller:
+
+   ```bash
+   adb logcat -b all -d > logcat.txt
+   adb shell getprop sys.boot.reason
+   adb shell 'cat /sys/fs/pstore/dmesg-ramoops* 2>/dev/null' > pstore.txt
+   ```
+
+   If dmesg shows `BUG: scheduling while atomic` / `workqueue leaked
+   lock or atomic` before the reboot, the kernel corrupted a kworker
+   (e.g. the writeback flusher) — send the **full stack trace** from
+   the pstore, not just the BUG header. Fixes that address this
+   class: `block/zios-iosched.c` must never call sleeping APIs
+   (`thermal_zone_get_temp()`, `power_supply_*`) from the dispatch
+   path — battery/thermal state is maintained by the per-queue
+   `zios_periodic_work` delayed work instead.
+
+3. **Screen flicker** — display-side and platform-specific: refresh-
+   rate switching (60/120 Hz), missing DC-dimming, or panel
+   power/init sequence. An MTK dmesg says nothing about a Qualcomm
+   device (e.g. garnet); grab the affected device's own logs:
+
+   ```bash
+   adb shell dmesg | grep -iE "panel|disp|drm|refresh|backlight|fps" > disp.txt
+   adb shell 'cat /sys/kernel/debug/dri/0/state 2>/dev/null' > disp_state.txt
+   ```
+
+---
+
 ## Hard rules (paraphrasing soul.md)
 
 - All values are unsigned. Negative writes are -EINVAL.

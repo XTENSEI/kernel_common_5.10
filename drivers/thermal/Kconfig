@@ -243,28 +243,6 @@ config KASUMI_DEBUG_MSG
 
 	  If unsure, say Y.
 
-config THERMAL_CHARGER_GUARD
-	bool "Auto-suppress Kasumi/Iyashi while a charger is online"
-	depends on POWER_SUPPLY
-	depends on KASUMI || IYASHI
-	default y
-	help
-	  Some userspace battery managers (notably on Transsion ROMs)
-	  read the post-Kasumi-dampened thermal_zone temperatures and
-	  refuse to start charging until the reading falls inside a
-	  vendor-specific band.  Because Kasumi lags the real
-	  temperature on purpose, the band check spins and the device
-	  throws spurious "won't charge until normal temps" warnings.
-
-	  When enabled, this driver registers a power_supply notifier
-	  and transparently suppresses Kasumi and Iyashi for the
-	  duration of any charging session, restoring them on unplug.
-	  The user-visible /sys/kernel/{kasumi,iyashi}/enabled knob is
-	  not modified; the suppression flag is observable read-only
-	  at /sys/kernel/{kasumi,iyashi}/charger_suppressed.
-
-	  If unsure, say Y.
-
 config DEVFREQ_THERMAL
 	bool "Generic device cooling support"
 	depends on PM_DEVFREQ
