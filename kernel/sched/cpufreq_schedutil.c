@@ -980,7 +980,15 @@ static DECLARE_WORK(rebuild_sd_work, rebuild_sd_workfn);
 void sched_cpufreq_governor_change(struct cpufreq_policy *policy,
 				  struct cpufreq_governor *old_gov)
 {
-	if (old_gov == &schedutil_gov || policy->governor == &schedutil_gov) {
+#ifdef CONFIG_CPU_FREQ_GOV_HYPERION
+	extern struct cpufreq_governor hyperion_gov;
+#endif
+
+	if (old_gov == &schedutil_gov || policy->governor == &schedutil_gov
+#ifdef CONFIG_CPU_FREQ_GOV_HYPERION
+	    || old_gov == &hyperion_gov || policy->governor == &hyperion_gov
+#endif
+	) {
 		/*
 		 * When called from the cpufreq_register_driver() path, the
 		 * cpu_hotplug_lock is already held, so use a work item to
