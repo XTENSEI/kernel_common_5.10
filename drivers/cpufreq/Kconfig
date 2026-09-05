@@ -116,6 +116,7 @@ config CPU_FREQ_DEFAULT_GOV_HYPERION
 	bool "hyperion"
 	depends on SMP
 	select CPU_FREQ_GOV_HYPERION
+	select CPU_FREQ_GOV_SCHEDUTIL
 	select CPU_FREQ_GOV_PERFORMANCE
 	help
 	  Use the 'hyperion' CPUFreq governor by default. The fallback
