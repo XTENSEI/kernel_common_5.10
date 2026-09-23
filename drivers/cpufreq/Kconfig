@@ -112,6 +112,16 @@ config CPU_FREQ_DEFAULT_GOV_SCHEDUTIL
 	  have a look at the help section of that governor. The fallback
 	  governor will be 'performance'.
 
+config CPU_FREQ_DEFAULT_GOV_HYPERION
+	bool "hyperion"
+	depends on SMP
+	select CPU_FREQ_GOV_HYPERION
+	select CPU_FREQ_GOV_SCHEDUTIL
+	select CPU_FREQ_GOV_PERFORMANCE
+	help
+	  Use the 'hyperion' CPUFreq governor by default. The fallback
+	  governor will be 'performance'.
+
 endchoice
 
 config CPU_FREQ_GOV_PERFORMANCE
@@ -207,6 +217,30 @@ config CPU_FREQ_GOV_SCHEDUTIL
 	  case, it is proportional to the current frequency of the CPU.  The
 	  frequency tipping point is at utilization/capacity equal to 80% in
 	  both cases.
+
+	  If in doubt, say N.
+
+config CPU_FREQ_GOV_HYPERION
+	bool "'hyperion' cpufreq policy governor"
+	depends on CPU_FREQ && SMP && CPU_FREQ_GOV_SCHEDUTIL
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  Hyperion is a hybrid governor built on schedutil.  Frequency
+	  scaling is identical to schedutil (including the 1.25x DVFS
+	  headroom) except that a hispeed floor measured from real CPU
+	  busy% (kcpustat idle-time counters) is blended with PELT util
+	  using an exponential decay matched to PELT's 32 ms half-life,
+	  giving interactive-style instant ramp-up with schedutil-class
+	  efficiency.
+
+	  GrayRavens extras: input boost arms the hispeed floor on touch
+	  events, a sustained game floor holds frequency for frame-bursty
+	  workloads, and screen-off relaxation caps the blend during
+	  suspend.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cpufreq_hyperion.
 
 	  If in doubt, say N.
 
