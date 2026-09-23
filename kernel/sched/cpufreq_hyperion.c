@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Hyperion CPUFreq governor (Zenithed-V5)
+ * Hyperion CPUFreq governor (GrayRavens)
  *
  * A hybrid governor combining the instant responsiveness of the
  * interactive governor with the efficiency of schedutil PELT-based
