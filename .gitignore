@@ -156,6 +156,4 @@ x509.genkey
 
 # Documentation toolchain
 sphinx_*/
-CLAUDE.md
-session.md
 .freebuff/
