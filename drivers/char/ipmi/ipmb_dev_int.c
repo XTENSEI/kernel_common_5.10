@@ -141,14 +141,13 @@ static ssize_t ipmb_write(struct file *file, const char __user *buf,
 	u8 msg[MAX_MSG_LEN];
 	ssize_t ret;
 
-	if (!count || count > sizeof(msg))
+	if (count > sizeof(msg))
 		return -EINVAL;
 
 	if (copy_from_user(&msg, buf, count))
 		return -EFAULT;
 
-	if (msg[IPMB_MSG_LEN_IDX] < IPMB_REQUEST_LEN_MIN ||
-	    count < (size_t)msg[IPMB_MSG_LEN_IDX] + 1)
+	if (count < msg[0])
 		return -EINVAL;
 
 	rq_sa = GET_7BIT_ADDR(msg[RQ_SA_8BIT_IDX]);

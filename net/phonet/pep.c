@@ -1093,7 +1093,7 @@ static int pep_getsockopt(struct sock *sk, int level, int optname,
 	len = min_t(unsigned int, sizeof(int), len);
 	if (put_user(len, optlen))
 		return -EFAULT;
-	if (copy_to_user(optval, &val, len))
+	if (put_user(val, (int __user *) optval))
 		return -EFAULT;
 	return 0;
 }

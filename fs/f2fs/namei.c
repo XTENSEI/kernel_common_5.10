@@ -721,15 +721,14 @@ err_out:
 	 * performance regression.
 	 */
 	if (!err) {
-		err = filemap_write_and_wait_range(inode->i_mapping, 0,
-						   disk_link.len - 1);
+		filemap_write_and_wait_range(inode->i_mapping, 0,
+							disk_link.len - 1);
 
-		if (!err && IS_DIRSYNC(dir))
+		if (IS_DIRSYNC(dir))
 			f2fs_sync_fs(sbi->sb, 1);
-	}
-
-	if (err)
+	} else {
 		f2fs_unlink(dir, dentry);
+	}
 
 	f2fs_balance_fs(sbi, true);
 	goto out_free_encrypted_link;

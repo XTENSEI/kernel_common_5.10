@@ -229,7 +229,7 @@ static int iqs62x_firmware_parse(struct iqs62x_core *iqs62x,
 		fw_rec = (struct iqs62x_fw_rec *)(fw->data + pos);
 		pos += sizeof(*fw_rec);
 
-		if (!fw_rec->len || fw_rec->len - 1 > fw->size - pos) {
+		if (pos + fw_rec->len - 1 > fw->size) {
 			ret = -EINVAL;
 			break;
 		}

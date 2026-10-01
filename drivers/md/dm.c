@@ -2637,7 +2637,7 @@ retry:
 	r = -EINVAL;
 	mutex_lock_nested(&md->suspend_lock, SINGLE_DEPTH_NESTING);
 
-	if (!dm_suspended_md(md) || test_bit(DMF_FREEING, &md->flags))
+	if (!dm_suspended_md(md))
 		goto out;
 
 	if (dm_suspended_internally_md(md)) {

@@ -34,7 +34,6 @@ struct mptcp_pm_add_entry {
 	struct timer_list	add_timer;
 	struct mptcp_sock	*sock;
 	u8			retrans_times;
-	bool			timer_done;
 	struct rcu_head		rcu;
 };
 
@@ -215,25 +214,27 @@ static void mptcp_pm_add_timer(struct timer_list *timer)
 	struct mptcp_pm_add_entry *entry = from_timer(entry, timer, add_timer);
 	struct mptcp_sock *msk = entry->sock;
 	struct sock *sk = (struct sock *)msk;
-	unsigned int timeout = 0;
 
 	pr_debug("msk=%p\n", msk);
 
-	bh_lock_sock(sk);
-	if (unlikely(inet_sk_state_load(sk) == TCP_CLOSE))
-		goto out;
+	if (!msk)
+		return;
+
+	if (inet_sk_state_load(sk) == TCP_CLOSE)
+		return;
 
 	if (!entry->addr.id)
-		goto out;
+		return;
 
+	bh_lock_sock(sk);
 	if (sock_owned_by_user(sk)) {
 		/* Try again later. */
-		timeout = HZ / 20;
+		sk_reset_timer(sk, timer, jiffies + HZ / 20);
 		goto out;
 	}
 
 	if (mptcp_pm_should_add_signal(msk)) {
-		timeout = TCP_RTO_MAX / 8;
+		sk_reset_timer(sk, timer, jiffies + TCP_RTO_MAX / 8);
 		goto out;
 	}
 
@@ -246,18 +247,13 @@ static void mptcp_pm_add_timer(struct timer_list *timer)
 	}
 
 	if (entry->retrans_times < ADD_ADDR_RETRANS_MAX)
-		timeout = TCP_RTO_MAX;
+		sk_reset_timer(sk, timer, jiffies + TCP_RTO_MAX);
 
 	spin_unlock_bh(&msk->pm.lock);
 
 out:
-	if (timeout)
-		sk_reset_timer(sk, timer, jiffies + timeout);
-	else
-		/* if sock_put calls sk_free: avoid waiting for this timer */
-		entry->timer_done = true;
 	bh_unlock_sock(sk);
-	sock_put(sk);
+	__sock_put(sk);
 }
 
 struct mptcp_pm_add_entry *
@@ -310,7 +306,6 @@ static bool mptcp_pm_alloc_anno_list(struct mptcp_sock *msk,
 	add_entry->retrans_times = 0;
 
 	timer_setup(&add_entry->add_timer, mptcp_pm_add_timer, 0);
-	add_entry->timer_done = false;
 	sk_reset_timer(sk, &add_entry->add_timer, jiffies + TCP_RTO_MAX);
 
 	return true;
@@ -329,8 +324,7 @@ void mptcp_pm_free_anno_list(struct mptcp_sock *msk)
 	spin_unlock_bh(&msk->pm.lock);
 
 	list_for_each_entry_safe(entry, tmp, &free_list, list) {
-		if (!entry->timer_done)
-			sk_stop_timer_sync(sk, &entry->add_timer);
+		sk_stop_timer_sync(sk, &entry->add_timer);
 		kfree_rcu(entry, rcu);
 	}
 }

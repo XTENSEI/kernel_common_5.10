@@ -1867,8 +1867,7 @@ static int sel_make_perm_files(struct selinux_policy *newpolicy,
 			char *objclass, int classvalue,
 			struct dentry *dir)
 {
-	u32 i, nperms;
-	int rc;
+	int i, rc, nperms;
 	char **perms;
 
 	rc = security_get_permissions(newpolicy, objclass, &perms, &nperms);
@@ -1941,8 +1940,8 @@ static int sel_make_classes(struct selinux_policy *newpolicy,
 			    struct dentry *class_dir,
 			    unsigned long *last_class_ino)
 {
-	u32 i, nclasses;
-	int rc;
+
+	int rc, nclasses, i;
 	char **classes;
 
 	rc = security_get_classes(newpolicy, &classes, &nclasses);

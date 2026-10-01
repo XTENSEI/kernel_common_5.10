@@ -3878,8 +3878,7 @@ failed_mii_init:
 failed_irq:
 	fec_enet_deinit(ndev);
 failed_init:
-	if (fep->bufdesc_ex)
-		fec_ptp_stop(pdev);
+	fec_ptp_stop(pdev);
 failed_reset:
 	pm_runtime_put_noidle(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
@@ -3919,8 +3918,7 @@ fec_drv_remove(struct platform_device *pdev)
 			ERR_PTR(ret));
 
 	cancel_work_sync(&fep->tx_timeout_work);
-	if (fep->bufdesc_ex)
-		fec_ptp_stop(pdev);
+	fec_ptp_stop(pdev);
 	unregister_netdev(ndev);
 	fec_enet_mii_remove(fep);
 	if (fep->reg_phy)

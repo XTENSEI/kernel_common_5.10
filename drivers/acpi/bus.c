@@ -681,7 +681,7 @@ static bool acpi_of_modalias(struct acpi_device *adev,
 
 	str = obj->string.pointer;
 	chr = strchr(str, ',');
-	strscpy(modalias, chr ? chr + 1 : str, len);
+	strlcpy(modalias, chr ? chr + 1 : str, len);
 
 	return true;
 }
@@ -701,7 +701,7 @@ void acpi_set_modalias(struct acpi_device *adev, const char *default_id,
 		       char *modalias, size_t len)
 {
 	if (!acpi_of_modalias(adev, modalias, len))
-		strscpy(modalias, default_id, len);
+		strlcpy(modalias, default_id, len);
 }
 EXPORT_SYMBOL_GPL(acpi_set_modalias);
 

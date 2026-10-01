@@ -1371,12 +1371,8 @@ static int __init init_clocksource_sysfs(void)
 {
 	int error = subsys_system_register(&clocksource_subsys, NULL);
 
-	if (error)
-		return error;
-
-	error = device_register(&device_clocksource);
-	if (error)
-		bus_unregister(&clocksource_subsys);
+	if (!error)
+		error = device_register(&device_clocksource);
 
 	return error;
 }

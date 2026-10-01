@@ -221,7 +221,7 @@ static int hci_uart_setup(struct hci_dev *hdev)
 	if (IS_ERR(skb)) {
 		bt_dev_err(hdev, "Reading local version info failed (%ld)",
 			   PTR_ERR(skb));
-		return PTR_ERR(skb);
+		return 0;
 	}
 
 	if (skb->len != sizeof(*ver))

@@ -4923,17 +4923,11 @@ static const struct alg_test_desc alg_test_descs[] = {
 		}
 	}, {
 #endif
-		.alg = "ecdh-nist-p192",
-		.test = alg_test_kpp,
-		.suite = {
-			.kpp = __VECS(ecdh_p192_tv_template)
-		}
-	}, {
-		.alg = "ecdh-nist-p256",
+		.alg = "ecdh",
 		.test = alg_test_kpp,
 		.fips_allowed = 1,
 		.suite = {
-			.kpp = __VECS(ecdh_p256_tv_template)
+			.kpp = __VECS(ecdh_tv_template)
 		}
 	}, {
 		.alg = "ecrdsa",

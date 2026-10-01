@@ -181,10 +181,8 @@ static int i2c_nuvoton_wait_for_stat(struct tpm_chip *chip, u8 mask, u8 value,
 						      timeout);
 		if (rc > 0)
 			return 0;
-
-		disable_irq(priv->irq);
-		if (rc < 0)
-			return rc;
+		/* At this point we know that the SINT pin is asserted, so we
+		 * do not need to do i2c_nuvoton_check_status */
 	} else {
 		unsigned long ten_msec, stop;
 		bool status_valid;

@@ -3251,8 +3251,7 @@ struct dw_hdmi *dw_hdmi_probe(struct platform_device *pdev,
 			break;
 		default:
 			dev_err(dev, "reg-io-width must be 1 or 4\n");
-			ret = -EINVAL;
-			goto err_res;
+			return ERR_PTR(-EINVAL);
 		}
 
 		iores = platform_get_resource(pdev, IORESOURCE_MEM, 0);

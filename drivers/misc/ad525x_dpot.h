@@ -10,8 +10,6 @@
 
 #include <linux/types.h>
 
-struct attribute_group;
-
 #define DPOT_CONF(features, wipers, max_pos, uid) \
 		(((features) << 18) | (((wipers) & 0xFF) << 10) | \
 		((max_pos & 0xF) << 6) | (uid & 0x3F))
@@ -211,7 +209,6 @@ struct ad_dpot_bus_data {
 
 int ad_dpot_probe(struct device *dev, struct ad_dpot_bus_data *bdata,
 		  unsigned long devid, const char *name);
-void ad_dpot_remove(struct device *dev);
-extern const struct attribute_group *ad_dpot_groups[];
+int ad_dpot_remove(struct device *dev);
 
 #endif

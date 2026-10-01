@@ -1303,7 +1303,7 @@ static struct clk_regmap gxbb_32k_clk_sel = {
 		.name = "32k_clk_sel",
 		.ops = &clk_regmap_mux_ops,
 		.parent_data = gxbb_32k_clk_parent_data,
-		.num_parents = ARRAY_SIZE(gxbb_32k_clk_parent_data),
+		.num_parents = 4,
 		.flags = CLK_SET_RATE_PARENT,
 	},
 };

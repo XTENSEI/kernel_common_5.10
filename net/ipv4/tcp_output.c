@@ -3244,7 +3244,7 @@ start:
 		avail_wnd = cur_mss;
 	}
 
-	len = cur_mss * (tcp_urg_mode(tp) ? 1 : segs);
+	len = cur_mss * segs;
 	if (len > avail_wnd) {
 		len = rounddown(avail_wnd, cur_mss);
 		if (!len)

@@ -576,18 +576,6 @@ static enum hrtimer_restart stimer_timer_callback(struct hrtimer *timer)
 }
 
 /*
- * Translate a stimer expiry given in 100ns reference ticks into an
- * an absolute deadline. Saturates on overflow.
- */
-static ktime_t stimer_add_delta(ktime_t now, u64 delta_100ns)
-{
-	if (delta_100ns >= KTIME_MAX / 100)
-		return KTIME_MAX;
-
-	return ktime_add_safe(now, 100 * delta_100ns);
-}
-
-/*
  * stimer_start() assumptions:
  * a) stimer->count is not equal to 0
  * b) stimer->config has HV_STIMER_ENABLE flag
@@ -596,7 +584,6 @@ static int stimer_start(struct kvm_vcpu_hv_stimer *stimer)
 {
 	u64 time_now;
 	ktime_t ktime_now;
-	ktime_t deadline;
 
 	time_now = get_time_ref_counter(stimer_to_vcpu(stimer)->kvm);
 	ktime_now = ktime_get();
@@ -619,8 +606,10 @@ static int stimer_start(struct kvm_vcpu_hv_stimer *stimer)
 					stimer->index,
 					time_now, stimer->exp_time);
 
-		deadline = stimer_add_delta(ktime_now, stimer->exp_time - time_now);
-		hrtimer_start(&stimer->timer, deadline, HRTIMER_MODE_ABS);
+		hrtimer_start(&stimer->timer,
+			      ktime_add_ns(ktime_now,
+					   100 * (stimer->exp_time - time_now)),
+			      HRTIMER_MODE_ABS);
 		return 0;
 	}
 	stimer->exp_time = stimer->count;
@@ -639,9 +628,9 @@ static int stimer_start(struct kvm_vcpu_hv_stimer *stimer)
 					   stimer->index,
 					   time_now, stimer->count);
 
-	deadline = stimer_add_delta(ktime_now, stimer->count - time_now);
-	hrtimer_start(&stimer->timer, deadline, HRTIMER_MODE_ABS);
-
+	hrtimer_start(&stimer->timer,
+		      ktime_add_ns(ktime_now, 100 * (stimer->count - time_now)),
+		      HRTIMER_MODE_ABS);
 	return 0;
 }
 

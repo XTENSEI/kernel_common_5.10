@@ -347,22 +347,16 @@ struct machine *machines__findnew(struct machines *machines, pid_t pid)
 	if ((pid != HOST_KERNEL_ID) &&
 	    (pid != DEFAULT_GUEST_KERNEL_ID) &&
 	    (symbol_conf.guestmount)) {
-		if (snprintf(path, sizeof(path), "%s/%d",
-			     symbol_conf.guestmount, pid) >= (int)sizeof(path)) {
-			pr_err("Guest path too long for pid %d\n", pid);
-			machine = NULL;
-			goto out;
-		}
+		sprintf(path, "%s/%d", symbol_conf.guestmount, pid);
 		if (access(path, R_OK)) {
 			static struct strlist *seen;
 
 			if (!seen)
 				seen = strlist__new(NULL, NULL);
 
-			if (!seen || !strlist__has_entry(seen, path)) {
+			if (!strlist__has_entry(seen, path)) {
 				pr_err("Can't access file %s\n", path);
-				if (seen)
-					strlist__add(seen, path);
+				strlist__add(seen, path);
 			}
 			machine = NULL;
 			goto out;
@@ -1227,35 +1221,27 @@ int machines__create_guest_kernel_maps(struct machines *machines)
 		for (i = 0; i < items; i++) {
 			if (!isdigit(namelist[i]->d_name[0])) {
 				/* Filter out . and .. */
-				free(namelist[i]);
 				continue;
 			}
-			errno = 0;
 			pid = (pid_t)strtol(namelist[i]->d_name, &endp, 10);
 			if ((*endp != '\0') ||
 			    (endp == namelist[i]->d_name) ||
 			    (errno == ERANGE)) {
 				pr_debug("invalid directory (%s). Skipping.\n",
 					 namelist[i]->d_name);
-				free(namelist[i]);
 				continue;
 			}
-			if (snprintf(path, sizeof(path), "%s/%s/proc/kallsyms",
-				     symbol_conf.guestmount,
-				     namelist[i]->d_name) >= (int)sizeof(path)) {
-				pr_debug("Guest kallsyms path too long for %s. Skipping.\n",
-					 namelist[i]->d_name);
-				free(namelist[i]);
-				continue;
-			}
-			if (access(path, R_OK)) {
+			sprintf(path, "%s/%s/proc/kallsyms",
+				symbol_conf.guestmount,
+				namelist[i]->d_name);
+			ret = access(path, R_OK);
+			if (ret) {
 				pr_debug("Can't access file %s\n", path);
-				free(namelist[i]);
-				continue;
+				goto failure;
 			}
 			machines__create_kernel_maps(machines, pid);
-			free(namelist[i]);
 		}
+failure:
 		free(namelist);
 	}
 

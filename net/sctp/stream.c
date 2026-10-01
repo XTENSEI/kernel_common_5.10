@@ -22,15 +22,6 @@
 #include <net/sctp/sm.h>
 #include <net/sctp/stream_sched.h>
 
-#define SCTP_STRRESET_MASK(type) \
-	BIT(ntohs(type) - ntohs(SCTP_PARAM_RESET_OUT_REQUEST))
-#define SCTP_STRRESET_TEST(asoc, type) \
-	((asoc)->strreset_outstanding & SCTP_STRRESET_MASK(type))
-#define SCTP_STRRESET_SET(asoc, type) \
-	((asoc)->strreset_outstanding |= SCTP_STRRESET_MASK(type))
-#define SCTP_STRRESET_CLEAR(asoc, type) \
-	((asoc)->strreset_outstanding &= ~SCTP_STRRESET_MASK(type))
-
 static void sctp_stream_shrink_out(struct sctp_stream *stream, __u16 outcnt)
 {
 	struct sctp_association *asoc;
@@ -381,10 +372,7 @@ int sctp_send_reset_streams(struct sctp_association *asoc,
 		goto out;
 	}
 
-	if (out)
-		SCTP_STRRESET_SET(asoc, SCTP_PARAM_RESET_OUT_REQUEST);
-	if (in)
-		SCTP_STRRESET_SET(asoc, SCTP_PARAM_RESET_IN_REQUEST);
+	asoc->strreset_outstanding = out + in;
 
 out:
 	return retval;
@@ -429,7 +417,7 @@ int sctp_send_reset_assoc(struct sctp_association *asoc)
 		return retval;
 	}
 
-	SCTP_STRRESET_SET(asoc, SCTP_PARAM_RESET_TSN_REQUEST);
+	asoc->strreset_outstanding = 1;
 
 	return 0;
 }
@@ -486,10 +474,7 @@ int sctp_send_add_streams(struct sctp_association *asoc,
 		goto out;
 	}
 
-	if (out)
-		SCTP_STRRESET_SET(asoc, SCTP_PARAM_RESET_ADD_OUT_STREAMS);
-	if (in)
-		SCTP_STRRESET_SET(asoc, SCTP_PARAM_RESET_ADD_IN_STREAMS);
+	asoc->strreset_outstanding = !!out + !!in;
 
 out:
 	return retval;
@@ -497,13 +482,13 @@ out:
 
 static struct sctp_paramhdr *sctp_chunk_lookup_strreset_param(
 			struct sctp_association *asoc, __be32 resp_seq,
-			__be16 type, bool match_seq)
+			__be16 type)
 {
 	struct sctp_chunk *chunk = asoc->strreset_chunk;
 	struct sctp_reconf_chunk *hdr;
 	union sctp_params param;
 
-	if (!chunk || !chunk->transport)
+	if (!chunk)
 		return NULL;
 
 	hdr = (struct sctp_reconf_chunk *)chunk->chunk_hdr;
@@ -514,7 +499,7 @@ static struct sctp_paramhdr *sctp_chunk_lookup_strreset_param(
 		 */
 		struct sctp_strreset_tsnreq *req = param.v;
 
-		if ((!match_seq || req->request_seq == resp_seq) &&
+		if ((!resp_seq || req->request_seq == resp_seq) &&
 		    (!type || type == req->param_hdr.type))
 			return param.v;
 	}
@@ -579,14 +564,13 @@ struct sctp_chunk *sctp_process_strreset_outreq(
 	if (asoc->strreset_chunk) {
 		if (!sctp_chunk_lookup_strreset_param(
 				asoc, outreq->response_seq,
-				SCTP_PARAM_RESET_IN_REQUEST, true) ||
-		    !SCTP_STRRESET_TEST(asoc, SCTP_PARAM_RESET_IN_REQUEST)) {
+				SCTP_PARAM_RESET_IN_REQUEST)) {
 			/* same process with outstanding isn't 0 */
 			result = SCTP_STRRESET_ERR_IN_PROGRESS;
 			goto out;
 		}
 
-		SCTP_STRRESET_CLEAR(asoc, SCTP_PARAM_RESET_IN_REQUEST);
+		asoc->strreset_outstanding--;
 		asoc->strreset_outseq++;
 
 		if (!asoc->strreset_outstanding) {
@@ -685,7 +669,7 @@ struct sctp_chunk *sctp_process_strreset_inreq(
 			SCTP_SO(stream, i)->state = SCTP_STREAM_CLOSED;
 
 	asoc->strreset_chunk = chunk;
-	SCTP_STRRESET_SET(asoc, SCTP_PARAM_RESET_OUT_REQUEST);
+	asoc->strreset_outstanding = 1;
 	sctp_chunk_hold(asoc->strreset_chunk);
 
 	result = SCTP_STRRESET_PERFORMED;
@@ -832,14 +816,13 @@ struct sctp_chunk *sctp_process_strreset_addstrm_out(
 
 	if (asoc->strreset_chunk) {
 		if (!sctp_chunk_lookup_strreset_param(
-			asoc, 0, SCTP_PARAM_RESET_ADD_IN_STREAMS, false) ||
-		    !SCTP_STRRESET_TEST(asoc, SCTP_PARAM_RESET_ADD_IN_STREAMS)) {
+			asoc, 0, SCTP_PARAM_RESET_ADD_IN_STREAMS)) {
 			/* same process with outstanding isn't 0 */
 			result = SCTP_STRRESET_ERR_IN_PROGRESS;
 			goto out;
 		}
 
-		SCTP_STRRESET_CLEAR(asoc, SCTP_PARAM_RESET_ADD_IN_STREAMS);
+		asoc->strreset_outstanding--;
 		asoc->strreset_outseq++;
 
 		if (!asoc->strreset_outstanding) {
@@ -916,7 +899,7 @@ struct sctp_chunk *sctp_process_strreset_addstrm_in(
 		goto out;
 
 	asoc->strreset_chunk = chunk;
-	SCTP_STRRESET_SET(asoc, SCTP_PARAM_RESET_ADD_OUT_STREAMS);
+	asoc->strreset_outstanding = 1;
 	sctp_chunk_hold(asoc->strreset_chunk);
 
 	stream->outcnt = outcnt;
@@ -944,9 +927,8 @@ struct sctp_chunk *sctp_process_strreset_resp(
 	struct sctp_paramhdr *req;
 	__u32 result;
 
-	req = sctp_chunk_lookup_strreset_param(asoc, resp->response_seq, 0,
-					       true);
-	if (!req || !SCTP_STRRESET_TEST(asoc, req->type))
+	req = sctp_chunk_lookup_strreset_param(asoc, resp->response_seq, 0);
+	if (!req)
 		return NULL;
 
 	result = ntohl(resp->result);
@@ -1096,7 +1078,7 @@ struct sctp_chunk *sctp_process_strreset_resp(
 			nums, 0, GFP_ATOMIC);
 	}
 
-	SCTP_STRRESET_CLEAR(asoc, req->type);
+	asoc->strreset_outstanding--;
 	asoc->strreset_outseq++;
 
 	/* remove everything for this reconf request */

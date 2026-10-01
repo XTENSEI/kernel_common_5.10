@@ -252,7 +252,6 @@ static int ocfs2_mknod(struct inode *dir,
 	sigset_t oldset;
 	int did_block_signals = 0;
 	struct ocfs2_dentry_lock *dl = NULL;
-	struct ocfs2_acl_state acl_state = { 0 };
 
 	trace_ocfs2_mknod(dir, dentry, dentry->d_name.len, dentry->d_name.name,
 			  (unsigned long long)OCFS2_I(dir)->ip_blkno,
@@ -327,14 +326,10 @@ static int ocfs2_mknod(struct inode *dir,
 		}
 	}
 
-	status = ocfs2_acl_init_prepare(inode, dir, parent_fe_bh, &acl_state);
-	if (status < 0)
-		goto leave;
-
 	/* calculate meta data/clusters for setting security and acl xattr */
-	status = ocfs2_calc_xattr_init(dir, mode, &si, &want_clusters,
-				       &xattr_credits, &want_meta,
-				       &acl_state);
+	status = ocfs2_calc_xattr_init(dir, parent_fe_bh, mode,
+				       &si, &want_clusters,
+				       &xattr_credits, &want_meta);
 	if (status < 0) {
 		mlog_errno(status);
 		goto leave;
@@ -412,8 +407,8 @@ static int ocfs2_mknod(struct inode *dir,
 		inc_nlink(dir);
 	}
 
-	status = ocfs2_init_acl(handle, inode, new_fe_bh, meta_ac, data_ac,
-				&acl_state);
+	status = ocfs2_init_acl(handle, inode, dir, new_fe_bh, parent_fe_bh,
+			 meta_ac, data_ac);
 
 	if (status < 0) {
 		mlog_errno(status);
@@ -477,8 +472,6 @@ leave:
 	brelse(new_fe_bh);
 	brelse(parent_fe_bh);
 	kfree(si.value);
-
-	ocfs2_acl_init_release(&acl_state);
 
 	ocfs2_free_dir_lookup_result(&lookup);
 

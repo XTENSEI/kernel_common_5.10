@@ -360,17 +360,17 @@ int pci_legacy_write(struct pci_bus *bus, loff_t port, u32 val, size_t size)
 
 	switch(size) {
 	case 1:
-		outb(val, port);
+		outb(port, val);
 		return 1;
 	case 2:
 		if (port & 1)
 			return -EINVAL;
-		outw(val, port);
+		outw(port, val);
 		return 2;
 	case 4:
 		if (port & 3)
 			return -EINVAL;
-		outl(val, port);
+		outl(port, val);
 		return 4;
 	}
 	return -EINVAL;

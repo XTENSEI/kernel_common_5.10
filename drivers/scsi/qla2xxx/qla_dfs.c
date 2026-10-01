@@ -474,9 +474,7 @@ qla2x00_dfs_fce_write(struct file *file, const char __user *buffer,
 		return PTR_ERR(buf);
 	}
 
-	rc = kstrtoul(buf, 0, &enable);
-	if (rc)
-		goto out_free;
+	enable = kstrtoul(buf, 0, 0);
 	rc = count;
 
 	mutex_lock(&ha->fce_mutex);

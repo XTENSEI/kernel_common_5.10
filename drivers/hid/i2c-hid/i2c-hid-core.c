@@ -752,22 +752,24 @@ static int i2c_hid_parse(struct hid_device *hid)
 		ret = i2c_hid_command(client, &hid_report_descr_cmd,
 				      rdesc, rsize);
 		if (ret) {
-			dev_err(&client->dev, "reading report descriptor failed\n");
-			goto out;
+			hid_err(hid, "reading report descriptor failed\n");
+			kfree(rdesc);
+			return -EIO;
 		}
 	}
 
 	i2c_hid_dbg(ihid, "Report Descriptor: %*ph\n", rsize, rdesc);
 
 	ret = hid_parse_report(hid, rdesc, rsize);
-	if (ret)
-		dbg_hid("parsing report descriptor failed\n");
-
-out:
 	if (!use_override)
 		kfree(rdesc);
 
-	return ret;
+	if (ret) {
+		dbg_hid("parsing report descriptor failed\n");
+		return ret;
+	}
+
+	return 0;
 }
 
 static int i2c_hid_start(struct hid_device *hid)

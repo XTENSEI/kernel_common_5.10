@@ -44,14 +44,6 @@ static DECLARE_RWSEM(o2hb_callback_sem);
  * whenever any of the threads sees activity from the node in its region.
  */
 static DEFINE_SPINLOCK(o2hb_live_lock);
-/*
- * Serializes region pin/unpin dependency management (o2hb_dependent_users
- * and the o2nm_depend_item()/o2nm_undepend_item() calls). o2hb_region_pin()
- * has to drop o2hb_live_lock across the sleeping o2nm_depend_item(), so the
- * spinlock alone can no longer keep pin and unpin mutually exclusive; this
- * mutex, taken outside o2hb_live_lock, does.
- */
-static DEFINE_MUTEX(o2hb_dependency_mutex);
 static struct list_head o2hb_live_slots[O2NM_MAX_NODES];
 static unsigned long o2hb_live_node_bitmap[BITS_TO_LONGS(O2NM_MAX_NODES)];
 static LIST_HEAD(o2hb_node_events);
@@ -147,7 +139,7 @@ static unsigned int o2hb_dependent_users;
  * In global heartbeat mode, we pin/unpin all o2hb regions. This solution
  * works for both file system and userdlm domains.
  */
-static int o2hb_region_pin(const char *region_uuid, bool from_callback);
+static int o2hb_region_pin(const char *region_uuid);
 static void o2hb_region_unpin(const char *region_uuid);
 
 /* Only sets a new threshold if there are no active regions.
@@ -387,7 +379,7 @@ static void o2hb_nego_timeout(struct work_struct *work)
 	if (reg->hr_last_hb_status)
 		return;
 
-	o2hb_fill_node_map(live_node_bitmap, O2NM_MAX_NODES);
+	o2hb_fill_node_map(live_node_bitmap, sizeof(live_node_bitmap));
 	/* lowest node as master node to make negotiate decision. */
 	master_node = find_next_bit(live_node_bitmap, O2NM_MAX_NODES, 0);
 
@@ -1102,7 +1094,7 @@ static int o2hb_do_disk_heartbeat(struct o2hb_region *reg)
 	 * If a node is not configured but is in the livemap, we still need
 	 * to read the slot so as to be able to remove it from the livemap.
 	 */
-	o2hb_fill_node_map(live_node_bitmap, O2NM_MAX_NODES);
+	o2hb_fill_node_map(live_node_bitmap, sizeof(live_node_bitmap));
 	i = -1;
 	while ((i = find_next_bit(live_node_bitmap,
 				  O2NM_MAX_NODES, i + 1)) < O2NM_MAX_NODES) {
@@ -1465,48 +1457,27 @@ void o2hb_init(void)
 	o2hb_debug_init();
 }
 
-static void __o2hb_fill_node_map(unsigned long *map, unsigned int bits)
+/* if we're already in a callback then we're already serialized by the sem */
+static void o2hb_fill_node_map_from_callback(unsigned long *map,
+					     unsigned bytes)
 {
-	bitmap_copy(map, o2hb_live_node_bitmap, bits);
-}
+	BUG_ON(bytes < (BITS_TO_LONGS(O2NM_MAX_NODES) * sizeof(unsigned long)));
 
-void o2hb_callback_read_lock(void)
-{
-	down_read(&o2hb_callback_sem);
-}
-
-void o2hb_callback_read_unlock(void)
-{
-	up_read(&o2hb_callback_sem);
-}
-
-void o2hb_synchronize_callbacks(void)
-{
-	down_write(&o2hb_callback_sem);
-	up_write(&o2hb_callback_sem);
-}
-
-/*
- * Callers must already hold o2hb_callback_sem for read or write so the copy
- * stays serialized with callback delivery.
- */
-void o2hb_fill_node_map_locked(unsigned long *map, unsigned int bits)
-{
-	spin_lock(&o2hb_live_lock);
-	__o2hb_fill_node_map(map, bits);
-	spin_unlock(&o2hb_live_lock);
+	memcpy(map, &o2hb_live_node_bitmap, bytes);
 }
 
 /*
  * get a map of all nodes that are heartbeating in any regions
  */
-void o2hb_fill_node_map(unsigned long *map, unsigned int bits)
+void o2hb_fill_node_map(unsigned long *map, unsigned bytes)
 {
 	/* callers want to serialize this map and callbacks so that they
 	 * can trust that they don't miss nodes coming to the party */
-	o2hb_callback_read_lock();
-	o2hb_fill_node_map_locked(map, bits);
-	o2hb_callback_read_unlock();
+	down_read(&o2hb_callback_sem);
+	spin_lock(&o2hb_live_lock);
+	o2hb_fill_node_map_from_callback(map, bytes);
+	spin_unlock(&o2hb_live_lock);
+	up_read(&o2hb_callback_sem);
 }
 EXPORT_SYMBOL_GPL(o2hb_fill_node_map);
 
@@ -2147,7 +2118,6 @@ static void o2hb_heartbeat_group_drop_item(struct config_group *group,
 	 * If global heartbeat active and there are dependent users,
 	 * pin all regions if quorum region count <= CUT_OFF
 	 */
-	mutex_lock(&o2hb_dependency_mutex);
 	spin_lock(&o2hb_live_lock);
 
 	if (!o2hb_dependent_users)
@@ -2155,11 +2125,10 @@ static void o2hb_heartbeat_group_drop_item(struct config_group *group,
 
 	if (bitmap_weight(o2hb_quorum_region_bitmap,
 			   O2NM_MAX_REGIONS) <= O2HB_PIN_CUT_OFF)
-		o2hb_region_pin(NULL, true);
+		o2hb_region_pin(NULL);
 
 unlock:
 	spin_unlock(&o2hb_live_lock);
-	mutex_unlock(&o2hb_dependency_mutex);
 }
 
 static ssize_t o2hb_heartbeat_group_dead_threshold_show(struct config_item *item,
@@ -2296,113 +2265,48 @@ EXPORT_SYMBOL_GPL(o2hb_setup_callback);
  * In local, we only pin the matching region. In global we pin all the active
  * regions.
  */
-static int o2hb_region_pin(const char *region_uuid, bool from_callback)
+static int o2hb_region_pin(const char *region_uuid)
 {
-	int ret = 0, found;
-	struct o2hb_region *reg, *pinned;
+	int ret = 0, found = 0;
+	struct o2hb_region *reg;
 	char *uuid;
 
 	assert_spin_locked(&o2hb_live_lock);
 
-	do {
-		found = 0;
-		pinned = NULL;
+	list_for_each_entry(reg, &o2hb_all_regions, hr_all_item) {
+		if (reg->hr_item_dropped)
+			continue;
 
-		list_for_each_entry(reg, &o2hb_all_regions, hr_all_item) {
-			if (reg->hr_item_dropped)
+		uuid = config_item_name(&reg->hr_item);
+
+		/* local heartbeat */
+		if (region_uuid) {
+			if (strcmp(region_uuid, uuid))
 				continue;
-
-			uuid = config_item_name(&reg->hr_item);
-
-			/* local heartbeat */
-			if (region_uuid) {
-				if (strcmp(region_uuid, uuid))
-					continue;
-				found = 1;
-			}
-
-			if (reg->hr_item_pinned || reg->hr_item_dropped) {
-				if (found)
-					break;
-				continue;
-			}
-
-			/*
-			 * Found a region that needs pinning. Take a reference
-			 * so it stays alive while we drop the lock below.
-			 */
-			pinned = reg;
-			config_item_get(&reg->hr_item);
-			break;
+			found = 1;
 		}
 
-		if (!pinned)
-			break;
-
-		uuid = config_item_name(&pinned->hr_item);
-
-		/*
-		 * o2nm_depend_item() -> configfs_depend_item() can sleep (it
-		 * takes the configfs root inode rwsem), so it must not run
-		 * under o2hb_live_lock. Drop the lock across it; @pinned is
-		 * kept alive by the reference taken above. The region list may
-		 * change while unlocked, so we rescan from the top afterwards.
-		 */
-		spin_unlock(&o2hb_live_lock);
+		if (reg->hr_item_pinned || reg->hr_item_dropped)
+			goto skip_pin;
 
 		/* Ignore ENOENT only for local hb (userdlm domain) */
-		if (from_callback)
-			ret = o2nm_depend_item_unlocked(&pinned->hr_item);
-		else
-			ret = o2nm_depend_item(&pinned->hr_item);
-
-		spin_lock(&o2hb_live_lock);
+		ret = o2nm_depend_item(&reg->hr_item);
 		if (!ret) {
-			/*
-			 * o2hb_live_lock was dropped across o2nm_depend_item().
-			 * o2hb_set_quorum_device() runs in the heartbeat thread
-			 * without o2hb_dependency_mutex, so for global heartbeat
-			 * it may have crossed O2HB_PIN_CUT_OFF and unpinned the
-			 * regions while we slept. If that happened this pin is
-			 * no longer wanted; undo it and stop rather than
-			 * resurrecting it on the rescan below.
-			 */
-			if (!region_uuid &&
-			    bitmap_weight(o2hb_quorum_region_bitmap,
-					  O2NM_MAX_REGIONS) > O2HB_PIN_CUT_OFF) {
-				o2nm_undepend_item(&pinned->hr_item);
-				spin_unlock(&o2hb_live_lock);
-				config_item_put(&pinned->hr_item);
-				spin_lock(&o2hb_live_lock);
+			mlog(ML_CLUSTER, "Pin region %s\n", uuid);
+			reg->hr_item_pinned = 1;
+		} else {
+			if (ret == -ENOENT && found)
+				ret = 0;
+			else {
+				mlog(ML_ERROR, "Pin region %s fails with %d\n",
+				     uuid, ret);
 				break;
 			}
-			mlog(ML_CLUSTER, "Pin region %s\n", uuid);
-			pinned->hr_item_pinned = 1;
-		} else if (ret == -ENOENT && (found || !region_uuid)) {
-			/*
-			 * For local hb (found): ignore ENOENT from userdlm
-			 * domains as before.  For global hb (!region_uuid):
-			 * the region may have been detached from configfs
-			 * while the lock was dropped — skip it and continue
-			 * pinning the remaining regions.
-			 */
-			ret = 0;
-		} else {
-			mlog(ML_ERROR, "Pin region %s fails with %d\n",
-			     uuid, ret);
 		}
-
-		/*
-		 * config_item_put() may drop the last reference and run
-		 * o2hb_region_release(), which also grabs o2hb_live_lock and
-		 * can sleep, so it must happen with the lock released.
-		 */
-		spin_unlock(&o2hb_live_lock);
-		config_item_put(&pinned->hr_item);
-		spin_lock(&o2hb_live_lock);
-
-		/* local hb pins a single matching region */
-	} while (!ret && !region_uuid);
+skip_pin:
+		if (found)
+			break;
+	}
 
 	return ret;
 }
@@ -2447,13 +2351,12 @@ static int o2hb_region_inc_user(const char *region_uuid)
 {
 	int ret = 0;
 
-	mutex_lock(&o2hb_dependency_mutex);
 	spin_lock(&o2hb_live_lock);
 
 	/* local heartbeat */
 	if (!o2hb_global_heartbeat_active()) {
-		ret = o2hb_region_pin(region_uuid, false);
-		goto unlock;
+	    ret = o2hb_region_pin(region_uuid);
+	    goto unlock;
 	}
 
 	/*
@@ -2465,23 +2368,16 @@ static int o2hb_region_inc_user(const char *region_uuid)
 		goto unlock;
 
 	if (bitmap_weight(o2hb_quorum_region_bitmap,
-			  O2NM_MAX_REGIONS) <= O2HB_PIN_CUT_OFF) {
-		ret = o2hb_region_pin(NULL, false);
-		if (ret) {
-			o2hb_region_unpin(NULL);
-			o2hb_dependent_users--;
-		}
-	}
+			   O2NM_MAX_REGIONS) <= O2HB_PIN_CUT_OFF)
+		ret = o2hb_region_pin(NULL);
 
 unlock:
 	spin_unlock(&o2hb_live_lock);
-	mutex_unlock(&o2hb_dependency_mutex);
 	return ret;
 }
 
 static void o2hb_region_dec_user(const char *region_uuid)
 {
-	mutex_lock(&o2hb_dependency_mutex);
 	spin_lock(&o2hb_live_lock);
 
 	/* local heartbeat */
@@ -2500,7 +2396,6 @@ static void o2hb_region_dec_user(const char *region_uuid)
 
 unlock:
 	spin_unlock(&o2hb_live_lock);
-	mutex_unlock(&o2hb_dependency_mutex);
 }
 
 int o2hb_register_callback(const char *region_uuid,
@@ -2575,7 +2470,7 @@ int o2hb_check_node_heartbeating_no_sem(u8 node_num)
 	unsigned long testing_map[BITS_TO_LONGS(O2NM_MAX_NODES)];
 
 	spin_lock(&o2hb_live_lock);
-	__o2hb_fill_node_map(testing_map, O2NM_MAX_NODES);
+	o2hb_fill_node_map_from_callback(testing_map, sizeof(testing_map));
 	spin_unlock(&o2hb_live_lock);
 	if (!test_bit(node_num, testing_map)) {
 		mlog(ML_HEARTBEAT,
@@ -2592,7 +2487,7 @@ int o2hb_check_node_heartbeating_from_callback(u8 node_num)
 {
 	unsigned long testing_map[BITS_TO_LONGS(O2NM_MAX_NODES)];
 
-	o2hb_fill_node_map_locked(testing_map, O2NM_MAX_NODES);
+	o2hb_fill_node_map_from_callback(testing_map, sizeof(testing_map));
 	if (!test_bit(node_num, testing_map)) {
 		mlog(ML_HEARTBEAT,
 		     "node (%u) does not have heartbeating enabled.\n",

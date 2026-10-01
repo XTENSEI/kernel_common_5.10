@@ -535,7 +535,7 @@ void cvm_oct_rx_shutdown(void)
 			cvmx_write_csr(CVMX_POW_WQ_INT_THRX(i), 0);
 
 		/* Free the interrupt handler */
-		free_irq(oct_rx_group[i].irq, &oct_rx_group[i].napi);
+		free_irq(oct_rx_group[i].irq, cvm_oct_device);
 
 		netif_napi_del(&oct_rx_group[i].napi);
 	}

@@ -338,7 +338,6 @@ restart:
 			nores = 1;
 			break;
 		}
-		skb->dev = dev;
 		__skb_pull(skb, skb_network_offset(skb));
 	} while ((q = NEXT_SLAVE(q)) != start);
 

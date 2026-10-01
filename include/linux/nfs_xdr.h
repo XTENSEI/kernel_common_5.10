@@ -275,7 +275,6 @@ struct nfs4_layoutget {
 	struct nfs4_layoutget_args args;
 	struct nfs4_layoutget_res res;
 	const struct cred *cred;
-	struct pnfs_layout_hdr *lo;
 	gfp_t gfp_flags;
 };
 
@@ -346,7 +345,7 @@ struct nfs4_layoutreturn {
 	struct nfs4_xdr_opaque_data ld_private;
 };
 
-#define PNFS_LAYOUTSTATS_MAXSIZE 384
+#define PNFS_LAYOUTSTATS_MAXSIZE 256
 
 struct nfs42_layoutstat_args;
 struct nfs42_layoutstat_devinfo;

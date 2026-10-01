@@ -8,7 +8,6 @@
  */
 
 #include <linux/keyboard.h>
-#include <linux/ctype.h>
 #include "spk_priv.h"
 #include "speakup.h"
 
@@ -112,7 +111,7 @@ static void say_key(int key)
 			     spk_msg_get(MSG_KEYNAMES_START + (key - 1)));
 }
 
-static void help_init(void)
+static int help_init(void)
 {
 	char start = SPACE;
 	int i;
@@ -121,19 +120,13 @@ static void help_init(void)
 	state_tbl = spk_our_keys[0] + SHIFT_TBL_SIZE + 2;
 	for (i = 0; i < num_funcs; i++) {
 		char *cur_funcname = spk_msg_get(MSG_FUNCNAMES_START + i);
-		char first_letter;
 
-		first_letter = tolower(*cur_funcname);
-
-		/* Accept only 'a'..'z' to index letter_offsets[] safely */
-		if (first_letter < 'a' || first_letter > 'z')
+		if (start == *cur_funcname)
 			continue;
-
-		if (start == first_letter)
-			continue;
-		start = first_letter;
+		start = *cur_funcname;
 		letter_offsets[(start & 31) - 1] = i;
 	}
+	return 0;
 }
 
 int spk_handle_help(struct vc_data *vc, u_char type, u_char ch, u_short key)
@@ -151,7 +144,7 @@ int spk_handle_help(struct vc_data *vc, u_char type, u_char ch, u_short key)
 			synth_printf("%s\n", spk_msg_get(MSG_LEAVING_HELP));
 			return 1;
 		}
-		ch = tolower(ch);
+		ch |= 32; /* lower case */
 		if (ch < 'a' || ch > 'z')
 			return -1;
 		if (letter_offsets[ch - 'a'] == -1) {

@@ -846,7 +846,7 @@ int mt76x02_mac_process_rx(struct mt76x02_dev *dev, struct sk_buff *skb,
 		}
 	}
 
-	if (len > skb->len)
+	if (WARN_ON_ONCE(len > skb->len))
 		return -EINVAL;
 
 	pskb_trim(skb, len);

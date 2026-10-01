@@ -50,20 +50,25 @@ int meson_card_reallocate_links(struct snd_soc_card *card,
 			 num_links * sizeof(*priv->card.dai_link),
 			 GFP_KERNEL | __GFP_ZERO);
 	if (!links)
-		return -ENOMEM;
-
-	priv->card.dai_link = links;
-	priv->card.num_links = num_links;
+		goto err_links;
 
 	ldata = krealloc(priv->link_data,
 			 num_links * sizeof(*priv->link_data),
 			 GFP_KERNEL | __GFP_ZERO);
-	/* meson_card_clean_references() will free the links on this error path */
 	if (!ldata)
-		return -ENOMEM;
+		goto err_ldata;
 
+	priv->card.dai_link = links;
 	priv->link_data = ldata;
+	priv->card.num_links = num_links;
 	return 0;
+
+err_ldata:
+	kfree(links);
+err_links:
+	dev_err(priv->card.dev, "failed to allocate links\n");
+	return -ENOMEM;
+
 }
 EXPORT_SYMBOL_GPL(meson_card_reallocate_links);
 

@@ -54,7 +54,7 @@
 static DEFINE_MUTEX(smack_ipv6_lock);
 static LIST_HEAD(smk_ipv6_port_list);
 struct kmem_cache *smack_rule_cache;
-int smack_enabled __initdata;
+int smack_enabled;
 
 #define A(s) {"smack"#s, sizeof("smack"#s) - 1, Opt_##s}
 static struct {
@@ -133,13 +133,12 @@ static int smk_bu_note(char *note, struct smack_known *sskp,
 #define smk_bu_note(note, sskp, oskp, mode, RC) (RC)
 #endif
 
-static int
-smk_bu_tsk_to_obj(struct task_struct *tsk, const struct task_smack *tsp,
-		  char *note, struct smack_known *oskp, int mode, int rc)
-{
 #ifdef CONFIG_SECURITY_SMACK_BRINGUP
+static int smk_bu_current(char *note, struct smack_known *oskp,
+			  int mode, int rc)
+{
+	struct task_smack *tsp = smack_cred(current_cred());
 	char acc[SMK_NUM_ACCESS_TYPE + 1];
-	char comm[TASK_COMM_LEN];
 
 	if (rc <= 0)
 		return rc;
@@ -147,22 +146,14 @@ smk_bu_tsk_to_obj(struct task_struct *tsk, const struct task_smack *tsp,
 		rc = 0;
 
 	smk_bu_mode(mode, acc);
-
 	pr_info("Smack %s: (%s %s %s) %s %s\n", smk_bu_mess[rc],
-		smk_of_task(tsp)->smk_known, oskp->smk_known,
-		acc, get_task_comm(comm, tsk), note);
+		tsp->smk_task->smk_known, oskp->smk_known,
+		acc, current->comm, note);
 	return 0;
+}
 #else
-	return rc;
+#define smk_bu_current(note, oskp, mode, RC) (RC)
 #endif
-}
-
-static int smk_bu_current(char *note, struct smack_known *oskp,
-			  int mode, int rc)
-{
-	return smk_bu_tsk_to_obj(current, smack_cred(current_cred()),
-				 note, oskp, mode, rc);
-}
 
 #ifdef CONFIG_SECURITY_SMACK_BRINGUP
 static int smk_bu_task(struct task_struct *otp, int mode, int rc)
@@ -399,7 +390,7 @@ static int smk_copy_relabel(struct list_head *nhead, struct list_head *ohead,
 
 /**
  * smk_ptrace_mode - helper function for converting PTRACE_MODE_* into MAY_*
- * @mode: input mode in form of PTRACE_MODE_*
+ * @mode - input mode in form of PTRACE_MODE_*
  *
  * Returns a converted MAY_* mode usable by smack rules
  */
@@ -1255,7 +1246,6 @@ static int smack_inode_getattr(const struct path *path)
 
 /**
  * smack_inode_setxattr - Smack check for setting xattrs
- * @mnt_userns: active user namespace
  * @dentry: the object
  * @name: name of the attribute
  * @value: value of the attribute
@@ -1382,7 +1372,6 @@ static int smack_inode_getxattr(struct dentry *dentry, const char *name)
 
 /**
  * smack_inode_removexattr - Smack check on removexattr
- * @mnt_userns: active user namespace
  * @dentry: the object
  * @name: name of the attribute
  *
@@ -1441,7 +1430,6 @@ static int smack_inode_removexattr(struct dentry *dentry, const char *name)
 
 /**
  * smack_inode_getsecurity - get smack xattrs
- * @mnt_userns: active user namespace
  * @inode: the object
  * @name: attribute name
  * @buffer: where to put the result
@@ -1677,14 +1665,13 @@ static int smack_file_fcntl(struct file *file, unsigned int cmd,
 }
 
 /**
- * smack_mmap_file - Check permissions for a mmap operation.
- * @file: contains the file structure for file to map (may be NULL).
- * @reqprot: contains the protection requested by the application.
- * @prot: contains the protection that will be applied by the kernel.
- * @flags: contains the operational flags.
- *
- * The @file may be NULL, e.g. if mapping anonymous memory.
- *
+ * smack_mmap_file :
+ * Check permissions for a mmap operation.  The @file may be NULL, e.g.
+ * if mapping anonymous memory.
+ * @file contains the file structure for file to map (may be NULL).
+ * @reqprot contains the protection requested by the application.
+ * @prot contains the protection that will be applied by the kernel.
+ * @flags contains the operational flags.
  * Return 0 if permission is granted.
  */
 static int smack_mmap_file(struct file *file,
@@ -3105,7 +3092,7 @@ static int smack_sem_associate(struct kern_ipc_perm *isp, int semflg)
 }
 
 /**
- * smack_sem_semctl - Smack access check for sem
+ * smack_sem_shmctl - Smack access check for sem
  * @isp: the object
  * @cmd: what it wants to do
  *
@@ -3163,20 +3150,14 @@ static int smack_sem_semop(struct kern_ipc_perm *isp, struct sembuf *sops,
 }
 
 /**
- * smk_tskacc_msq : helper to check if tsk has access on msq
- * @tsk: the task that requests access
- * @isp : the sysv msg queue permissions
+ * smk_curacc_msq : helper to check if current has access on msq
+ * @isp : the msq
  * @access : access requested
  *
- * return 0 if tsk has access, error otherwise
+ * return 0 if current has access, error otherwise
  */
-static int
-smk_tskacc_msq(struct task_struct *tsk, struct kern_ipc_perm *isp, int access)
+static int smk_curacc_msq(struct kern_ipc_perm *isp, int access)
 {
-	const bool tsk_is_current = (tsk == current);
-	const struct cred * const tsk_cred =
-			(tsk_is_current ? current_cred() : get_task_cred(tsk));
-	struct task_smack * const tsp = smack_cred(tsk_cred);
 	struct smack_known *msp = smack_of_ipc(isp);
 	struct smk_audit_info ad;
 	int rc;
@@ -3185,23 +3166,9 @@ smk_tskacc_msq(struct task_struct *tsk, struct kern_ipc_perm *isp, int access)
 	smk_ad_init(&ad, __func__, LSM_AUDIT_DATA_IPC);
 	ad.a.u.ipc_id = isp->id;
 #endif
-	rc = smk_tskacc(tsp, msp, access, &ad);
-	rc = smk_bu_tsk_to_obj(tsk, tsp, "msq", msp, access, rc);
-	if (!tsk_is_current)
-		put_cred(tsk_cred);
+	rc = smk_curacc(msp, access, &ad);
+	rc = smk_bu_current("msq", msp, access, rc);
 	return rc;
-}
-
-/**
- * smk_curacc_msq : helper to check if current has access on msq
- * @isp : the sysv msg queue permissions
- * @access : access requested
- *
- * return 0 if current has access, error otherwise
- */
-static int smk_curacc_msq(struct kern_ipc_perm *isp, int access)
-{
-	return smk_tskacc_msq(current, isp, access);
 }
 
 /**
@@ -3271,21 +3238,19 @@ static int smack_msg_queue_msgsnd(struct kern_ipc_perm *isp, struct msg_msg *msg
 }
 
 /**
- * smack_msg_queue_msgrcv - check it target has r/w access to msg_queue
+ * smack_msg_queue_msgsnd - Smack access check for msg_queue
  * @isp: the object
  * @msg: unused
- * @target: the task that msgrcv() from the queue
+ * @target: unused
  * @type: unused
  * @mode: unused
  *
- * Returns 0 if target has read and write access, error code otherwise
+ * Returns 0 if current has read and write access, error code otherwise
  */
-static int smack_msg_queue_msgrcv(struct kern_ipc_perm *isp,
-				  struct msg_msg *msg,
-				  struct task_struct *target, long type,
-				  int mode)
+static int smack_msg_queue_msgrcv(struct kern_ipc_perm *isp, struct msg_msg *msg,
+			struct task_struct *target, long type, int mode)
 {
-	return smk_tskacc_msq(target, isp, MAY_READWRITE);
+	return smk_curacc_msq(isp, MAY_READWRITE);
 }
 
 /**

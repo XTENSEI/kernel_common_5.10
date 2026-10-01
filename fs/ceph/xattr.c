@@ -715,7 +715,6 @@ start:
 			name = p;
 			p += len;
 			ceph_decode_32_safe(&p, end, len, bad);
-			ceph_decode_need(&p, end, len, bad);
 			val = p;
 			p += len;
 

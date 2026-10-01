@@ -181,13 +181,11 @@ static void wl_entry_destroy(struct ubi_device *ubi, struct ubi_wl_entry *e)
 /**
  * do_work - do one pending work.
  * @ubi: UBI device description object
- * @executed: whether there is one work is executed
  *
  * This function returns zero in case of success and a negative error code in
- * case of failure. If @executed is not NULL and there is one work executed,
- * @executed is set as %1, otherwise @executed is set as %0.
+ * case of failure.
  */
-static int do_work(struct ubi_device *ubi, int *executed)
+static int do_work(struct ubi_device *ubi)
 {
 	int err;
 	struct ubi_work *wrk;
@@ -205,13 +203,9 @@ static int do_work(struct ubi_device *ubi, int *executed)
 	if (list_empty(&ubi->works)) {
 		spin_unlock(&ubi->wl_lock);
 		up_read(&ubi->work_sem);
-		if (executed)
-			*executed = 0;
 		return 0;
 	}
 
-	if (executed)
-		*executed = 1;
 	wrk = list_entry(ubi->works.next, struct ubi_work, list);
 	list_del(&wrk->list);
 	ubi->works_count -= 1;
@@ -382,7 +376,7 @@ static struct ubi_wl_entry *find_mean_wl_entry(struct ubi_device *ubi,
  * refill_wl_user_pool().
  * @ubi: UBI device description object
  *
- * This function returns a wear leveling entry in case of success and
+ * This function returns a a wear leveling entry in case of success and
  * NULL in case of failure.
  */
 static struct ubi_wl_entry *wl_get_wle(struct ubi_device *ubi)
@@ -433,17 +427,16 @@ static int prot_queue_del(struct ubi_device *ubi, int pnum)
 }
 
 /**
- * ubi_sync_erase - synchronously erase a physical eraseblock.
+ * sync_erase - synchronously erase a physical eraseblock.
  * @ubi: UBI device description object
- * @e: the physical eraseblock to erase
- * @torture: if the physical eraseblock has to be tortured; cleared to zero
- *           once the torture test has completed successfully so that a retry
- *           of the erase does not torture the physical eraseblock again
+ * @e: the the physical eraseblock to erase
+ * @torture: if the physical eraseblock has to be tortured
  *
  * This function returns zero in case of success and a negative error code in
  * case of failure.
  */
-int ubi_sync_erase(struct ubi_device *ubi, struct ubi_wl_entry *e, int *torture)
+static int sync_erase(struct ubi_device *ubi, struct ubi_wl_entry *e,
+		      int torture)
 {
 	int err;
 	struct ubi_ec_hdr *ec_hdr;
@@ -1031,7 +1024,7 @@ static int ensure_wear_leveling(struct ubi_device *ubi, int nested)
 
 	/*
 	 * If the ubi->scrub tree is not empty, scrubbing is needed, and the
-	 * WL worker has to be scheduled anyway.
+	 * the WL worker has to be scheduled anyway.
 	 */
 	if (!ubi->scrub.rb_node) {
 		if (!ubi->used.rb_node || !ubi->free.rb_node)
@@ -1098,7 +1091,7 @@ static int __erase_worker(struct ubi_device *ubi, struct ubi_work *wl_wrk)
 	dbg_wl("erase PEB %d EC %d LEB %d:%d",
 	       pnum, e->ec, wl_wrk->vol_id, wl_wrk->lnum);
 
-	err = ubi_sync_erase(ubi, e, &wl_wrk->torture);
+	err = sync_erase(ubi, e, wl_wrk->torture);
 	if (!err) {
 		spin_lock(&ubi->wl_lock);
 
@@ -1135,8 +1128,7 @@ static int __erase_worker(struct ubi_device *ubi, struct ubi_work *wl_wrk)
 		int err1;
 
 		/* Re-schedule the LEB for erasure */
-		err1 = schedule_erase(ubi, e, vol_id, lnum, wl_wrk->torture,
-				      true);
+		err1 = schedule_erase(ubi, e, vol_id, lnum, 0, true);
 		if (err1) {
 			spin_lock(&ubi->wl_lock);
 			wl_entry_destroy(ubi, e);
@@ -1691,7 +1683,7 @@ int ubi_thread(void *u)
 		}
 		spin_unlock(&ubi->wl_lock);
 
-		err = do_work(ubi, NULL);
+		err = do_work(ubi);
 		if (err) {
 			ubi_err(ubi, "%s: work failed with error code %d",
 				ubi->bgt_name, err);
@@ -1743,7 +1735,7 @@ static void shutdown_work(struct ubi_device *ubi)
 static int erase_aeb(struct ubi_device *ubi, struct ubi_ainf_peb *aeb, bool sync)
 {
 	struct ubi_wl_entry *e;
-	int err, torture = 0;
+	int err;
 
 	e = kmem_cache_alloc(ubi_wl_entry_slab, GFP_KERNEL);
 	if (!e)
@@ -1754,7 +1746,7 @@ static int erase_aeb(struct ubi_device *ubi, struct ubi_ainf_peb *aeb, bool sync
 	ubi->lookuptbl[e->pnum] = e;
 
 	if (sync) {
-		err = ubi_sync_erase(ubi, e, &torture);
+		err = sync_erase(ubi, e, false);
 		if (err)
 			goto out_free;
 
@@ -2102,7 +2094,7 @@ static int produce_free_peb(struct ubi_device *ubi)
 		spin_unlock(&ubi->wl_lock);
 
 		dbg_wl("do one work synchronously");
-		err = do_work(ubi, NULL);
+		err = do_work(ubi);
 
 		spin_lock(&ubi->wl_lock);
 		if (err)

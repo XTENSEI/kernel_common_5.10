@@ -142,29 +142,30 @@ static int hsr_dev_open(struct net_device *dev)
 {
 	struct hsr_priv *hsr;
 	struct hsr_port *port;
-	const char *designation = NULL;
+	char designation;
 
 	hsr = netdev_priv(dev);
+	designation = '\0';
 
 	hsr_for_each_port(hsr, port) {
 		if (port->type == HSR_PT_MASTER)
 			continue;
 		switch (port->type) {
 		case HSR_PT_SLAVE_A:
-			designation = "Slave A";
+			designation = 'A';
 			break;
 		case HSR_PT_SLAVE_B:
-			designation = "Slave B";
+			designation = 'B';
 			break;
 		default:
-			designation = "Unknown";
+			designation = '?';
 		}
 		if (!is_slave_up(port->dev))
-			netdev_warn(dev, "%s (%s) is not up; please bring it up to get a fully working HSR network\n",
+			netdev_warn(dev, "Slave %c (%s) is not up; please bring it up to get a fully working HSR network\n",
 				    designation, port->dev->name);
 	}
 
-	if (!designation)
+	if (designation == '\0')
 		netdev_warn(dev, "No slave devices configured\n");
 
 	return 0;
@@ -490,6 +491,7 @@ int hsr_dev_finalize(struct net_device *hsr_dev, struct net_device *slave[2],
 	hsr = netdev_priv(hsr_dev);
 	INIT_LIST_HEAD(&hsr->ports);
 	INIT_LIST_HEAD(&hsr->node_db);
+	INIT_LIST_HEAD(&hsr->self_node_db);
 	spin_lock_init(&hsr->list_lock);
 
 	ether_addr_copy(hsr_dev->dev_addr, slave[0]->dev_addr);
