@@ -337,6 +337,7 @@ svc_pool_for_cpu(struct svc_serv *serv, int cpu)
 {
 	struct svc_pool_map *m = &svc_pool_map;
 	unsigned int pidx = 0;
+	unsigned int i;
 
 	/*
 	 * An uninitialised map happens in a pure client when
