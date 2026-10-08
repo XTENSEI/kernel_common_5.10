@@ -743,5 +743,5 @@ CONFIG_IP_SET_HASH_NET=y
 CONFIG_NETFILTER_XT_SET=y
 
 # GrayRavens branding (shows in uname -r / uname -n)
-CONFIG_LOCALVERSION="-GrayRavens-Hyperion-Stable"
+CONFIG_LOCALVERSION="-GrayRavens-Zenithed-Stable"
 CONFIG_DEFAULT_HOSTNAME="grayravens"
