@@ -1151,10 +1151,13 @@ static int swapdropd_fn(void *p)
 static inline unsigned long nandswap_type(void)
 {
 	unsigned long type;
-	for (type = 0; type < MAX_SWAPFILES; type++)
+	for (type = 0; type < MAX_SWAPFILES; type++) {
+		if (!swap_info[type])
+			continue;
 		if ((swap_info[type]->flags & SWP_NANDSWAP) &&
 			(swap_info[type]->flags & SWP_USED))
 			break;
+	}
 
 	return type;
 }
