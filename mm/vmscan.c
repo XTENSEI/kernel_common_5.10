@@ -1619,8 +1619,9 @@ unsigned long nswap_reclaim_page_list(struct list_head *page_list,
 		.may_writepage = 1,
 		.may_unmap = 1,
 		.may_swap = 1,
-		.target_vma = vma,
 	};
+
+	(void)vma;
 
 	list_for_each_entry(page, page_list, lru) {
 		ClearPageActive(page);
