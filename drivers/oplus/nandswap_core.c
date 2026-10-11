@@ -200,6 +200,8 @@ extern int swapin_walk_pmd_entry(pmd_t *pmd, unsigned long start,
 				 unsigned long end, struct mm_walk *walk);
 extern unsigned long nswap_reclaim_page_list(struct list_head *page_list,
 					     struct vm_area_struct *vma, bool scan);
+extern int isolate_lru_page(struct page *page);
+extern void putback_lru_page(struct page *page);
 
 static void ns_free_task(struct kref *kref)
 {
@@ -687,7 +689,7 @@ static int ns_reclaim_pte(pmd_t *pmd, unsigned long addr,
 	int reclaimed = 0;
 	int reclaim_type = rp->type;
 
-	split_huge_pmd(vma, addr, pmd);
+	split_huge_pmd(vma, pmd, addr);
 	if (pmd_trans_unstable(pmd) || !rp->nr_to_reclaim)
 		return 0;
 cont:
