@@ -14,6 +14,11 @@
 #include <linux/page-flags.h>
 #include <asm/page.h>
 
+#if defined(CONFIG_OPLUS_NANDSWAP)
+#include <../drivers/oplus/nandswap.h>
+#define SWAP_NANDSWAP_PRIO	2020	/* just a magic number */
+#endif
+
 struct notifier_block;
 
 struct bio;
@@ -177,7 +182,12 @@ enum {
 	SWP_SYNCHRONOUS_IO = (1 << 12),	/* synchronous IO is efficient */
 	SWP_VALID	= (1 << 13),	/* swap is valid to be operated on? */
 					/* add others here before... */
+#if defined(CONFIG_OPLUS_NANDSWAP)
+	SWP_NANDSWAP	= (1 << 14),	/* mark the device used for nandswap */
+	SWP_SCANNING	= (1 << 15),	/* refcount in scan_swap_map */
+#else
 	SWP_SCANNING	= (1 << 14),	/* refcount in scan_swap_map */
+#endif
 };
 
 #define SWAP_CLUSTER_MAX 32UL
@@ -454,6 +464,10 @@ extern atomic_long_t nr_swap_pages;
 extern long total_swap_pages;
 extern atomic_t nr_rotate_swap;
 extern bool has_usable_swap(void);
+
+#if defined(CONFIG_OPLUS_NANDSWAP)
+extern struct swap_info_struct *nandswap_si;
+#endif
 
 /* Swap 50% full? Release swapcache more aggressively.. */
 static inline bool vm_swap_full(void)

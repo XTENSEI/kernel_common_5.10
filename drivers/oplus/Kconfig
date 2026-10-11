@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-only
+menu "OPLUS Features"
+
+config OPLUS_FEATURE
+	bool "OPLUS Features"
+	default y
+
+config OPLUS_NANDSWAP
+	bool "OPLUS nandswap support"
+	depends on SWAP
+	default y
+	help
+	  This option enables OPLUS nandswap feature for ColorOS RAM Expansion.
+
+endmenu
