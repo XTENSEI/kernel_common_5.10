@@ -12,7 +12,18 @@
 int oplus_healthinfo_init(void);
 void oplus_healthinfo_exit(void);
 
+#if IS_ENABLED(CONFIG_OPLUS_HEALTHINFO)
 int ohm_get_cur_cpuload(void);
 bool is_fg(int uid);
+#else
+static inline int ohm_get_cur_cpuload(void)
+{
+	return 0;
+}
+static inline bool is_fg(int uid)
+{
+	return false;
+}
+#endif
 
 #endif /* _HEALTHINFO_H_ */

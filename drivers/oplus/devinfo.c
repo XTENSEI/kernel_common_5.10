@@ -417,6 +417,54 @@ static const struct proc_ops devinfo_ufsplus_proc_ops = {
 	.proc_release = single_release,
 };
 
+/* /proc/devinfo/ufs_version */
+static int devinfo_ufs_version_show(struct seq_file *m, void *v)
+{
+	ensure_hardware_probed();
+
+	if (storage_info.is_ufs)
+		seq_printf(m, "%s\n", storage_info.version);
+	else
+		seq_puts(m, "none\n");
+	return 0;
+}
+
+static int devinfo_ufs_version_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, devinfo_ufs_version_show, NULL);
+}
+
+static const struct proc_ops devinfo_ufs_version_proc_ops = {
+	.proc_open    = devinfo_ufs_version_open,
+	.proc_read    = seq_read,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
+};
+
+/* /proc/devinfo/emmc_version */
+static int devinfo_emmc_version_show(struct seq_file *m, void *v)
+{
+	ensure_hardware_probed();
+
+	if (storage_info.is_emmc)
+		seq_printf(m, "%s\n", storage_info.version);
+	else
+		seq_puts(m, "none\n");
+	return 0;
+}
+
+static int devinfo_emmc_version_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, devinfo_emmc_version_show, NULL);
+}
+
+static const struct proc_ops devinfo_emmc_version_proc_ops = {
+	.proc_open    = devinfo_emmc_version_open,
+	.proc_read    = seq_read,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
+};
+
 static int __init oplus_devinfo_init(void)
 {
 	devinfo_dir = proc_mkdir("devinfo", NULL);
@@ -426,7 +474,9 @@ static int __init oplus_devinfo_init(void)
 	}
 
 	proc_create("ufs", 0444, devinfo_dir, &devinfo_ufs_proc_ops);
+	proc_create("ufs_version", 0444, devinfo_dir, &devinfo_ufs_version_proc_ops);
 	proc_create("emmc", 0444, devinfo_dir, &devinfo_emmc_proc_ops);
+	proc_create("emmc_version", 0444, devinfo_dir, &devinfo_emmc_version_proc_ops);
 	proc_create("ddr", 0444, devinfo_dir, &devinfo_ddr_proc_ops);
 	proc_create("ufsplus_status", 0444, devinfo_dir, &devinfo_ufsplus_proc_ops);
 
@@ -439,7 +489,9 @@ static void __exit oplus_devinfo_exit(void)
 	if (devinfo_dir) {
 		remove_proc_entry("ufsplus_status", devinfo_dir);
 		remove_proc_entry("ddr", devinfo_dir);
+		remove_proc_entry("emmc_version", devinfo_dir);
 		remove_proc_entry("emmc", devinfo_dir);
+		remove_proc_entry("ufs_version", devinfo_dir);
 		remove_proc_entry("ufs", devinfo_dir);
 		remove_proc_entry("devinfo", NULL);
 	}
@@ -448,7 +500,7 @@ static void __exit oplus_devinfo_exit(void)
 module_init(oplus_devinfo_init);
 module_exit(oplus_devinfo_exit);
 
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
 MODULE_AUTHOR("RapliVx <raffikun1203@gmail.com>");
 MODULE_DESCRIPTION("OPlus Hardware Device Info Procfs Driver");
 MODULE_VERSION("1.0.0");
