@@ -48,6 +48,8 @@ EXPORT_SYMBOL_GPL(is_fg);
 static DEFINE_MUTEX(cpu_load_lock);
 static unsigned long last_load_jiffies;
 static int cached_load;
+static struct cpu_load_sample prev_sample;
+static bool has_prev_sample;
 
 struct cpu_load_sample {
 	u64 t_user;
@@ -113,42 +115,48 @@ static void get_cpu_sample(struct cpu_load_sample *s)
  */
 int ohm_get_cur_cpuload(void)
 {
-	struct cpu_load_sample s1, s2;
+	struct cpu_load_sample cur_sample;
 	u64 d_user, d_system, d_idle, d_iowait, d_irq, d_softirq;
 	u64 load, sum;
+	unsigned long now = jiffies;
 
 	mutex_lock(&cpu_load_lock);
 
 	/* Return cached load if polled within 100ms */
-	if (last_load_jiffies && time_before(jiffies, last_load_jiffies + HZ / 10)) {
+	if (has_prev_sample && time_before(now, last_load_jiffies + HZ / 10)) {
 		int ret = cached_load;
 		mutex_unlock(&cpu_load_lock);
 		return ret;
 	}
 
-	get_cpu_sample(&s1);
-	msleep(25);
-	get_cpu_sample(&s2);
+	get_cpu_sample(&cur_sample);
 
-	d_user    = (s2.t_user >= s1.t_user) ? (s2.t_user - s1.t_user) : 0;
-	d_system  = (s2.t_system >= s1.t_system) ? (s2.t_system - s1.t_system) : 0;
-	d_idle    = (s2.t_idle >= s1.t_idle) ? (s2.t_idle - s1.t_idle) : 0;
-	d_iowait  = (s2.t_iowait >= s1.t_iowait) ? (s2.t_iowait - s1.t_iowait) : 0;
-	d_irq     = (s2.t_irq >= s1.t_irq) ? (s2.t_irq - s1.t_irq) : 0;
-	d_softirq = (s2.t_softirq >= s1.t_softirq) ? (s2.t_softirq - s1.t_softirq) : 0;
+	if (!has_prev_sample) {
+		prev_sample = cur_sample;
+		last_load_jiffies = now;
+		has_prev_sample = true;
+		mutex_unlock(&cpu_load_lock);
+		return cached_load;
+	}
+
+	d_user    = (cur_sample.t_user >= prev_sample.t_user) ? (cur_sample.t_user - prev_sample.t_user) : 0;
+	d_system  = (cur_sample.t_system >= prev_sample.t_system) ? (cur_sample.t_system - prev_sample.t_system) : 0;
+	d_idle    = (cur_sample.t_idle >= prev_sample.t_idle) ? (cur_sample.t_idle - prev_sample.t_idle) : 0;
+	d_iowait  = (cur_sample.t_iowait >= prev_sample.t_iowait) ? (cur_sample.t_iowait - prev_sample.t_iowait) : 0;
+	d_irq     = (cur_sample.t_irq >= prev_sample.t_irq) ? (cur_sample.t_irq - prev_sample.t_irq) : 0;
+	d_softirq = (cur_sample.t_softirq >= prev_sample.t_softirq) ? (cur_sample.t_softirq - prev_sample.t_softirq) : 0;
 
 	sum = d_user + d_system + d_idle + d_iowait + d_irq + d_softirq;
 	load = d_user + d_system + d_iowait + d_irq + d_softirq;
 
-	if (sum == 0)
-		cached_load = 0;
-	else {
+	if (sum > 0) {
 		cached_load = (int)(100 * load / sum);
 		if (cached_load > 100)
 			cached_load = 100;
 	}
 
-	last_load_jiffies = jiffies;
+	prev_sample = cur_sample;
+	last_load_jiffies = now;
 	mutex_unlock(&cpu_load_lock);
 
 	return cached_load;
@@ -514,6 +522,11 @@ int __init oplus_healthinfo_init(void)
 	if (fg_info_dir) {
 		proc_create("fg_uids", 0666, fg_info_dir, &proc_fg_uids_fops);
 	}
+
+	/* Initialize baseline CPU load sample */
+	get_cpu_sample(&prev_sample);
+	last_load_jiffies = jiffies;
+	has_prev_sample = true;
 
 	pr_info("healthinfo: OPLUS healthinfo interfaces initialized successfully\n");
 	return 0;
