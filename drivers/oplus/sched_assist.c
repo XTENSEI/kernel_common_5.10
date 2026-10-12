@@ -25,6 +25,7 @@
 #include <linux/jiffies.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
+#include <linux/sysctl.h>
 
 #define MAX_TRACKED_TASKS 64
 #define SCENE_WATCHDOG_TIMEOUT_MS 3000
@@ -39,7 +40,11 @@ static int current_scene;
 static unsigned long scene_timestamp;
 static int disable_setting;
 static int im_flag_val;
+static int im_flag_app_val;
 static int audio_enable_val;
+static int audio_status_val;
+static int tpd_cmds_val;
+static int tpd_id_val;
 static DEFINE_SPINLOCK(scene_lock);
 
 /* Frequency QoS requests per online policy */
@@ -65,6 +70,12 @@ struct task_boost_entry {
 
 static struct task_boost_entry ux_tasks[MAX_TRACKED_TASKS];
 static DEFINE_SPINLOCK(ux_lock);
+
+static struct task_boost_entry app_ux_tasks[MAX_TRACKED_TASKS];
+static DEFINE_SPINLOCK(app_ux_lock);
+
+static struct task_boost_entry ddl_tasks[MAX_TRACKED_TASKS];
+static DEFINE_SPINLOCK(ddl_lock);
 
 static struct task_boost_entry impt_tasks[MAX_TRACKED_TASKS];
 static DEFINE_SPINLOCK(impt_lock);
@@ -261,6 +272,54 @@ static const struct proc_ops sched_assist_scene_proc_ops = {
 	.proc_release = single_release,
 };
 
+#ifdef CONFIG_SYSCTL
+static int sched_assist_scene_sysctl(struct ctl_table *table, int write,
+				     void *buffer, size_t *lenp, loff_t *ppos)
+{
+	int ret;
+	unsigned long flags;
+
+	ret = proc_dointvec(table, write, buffer, lenp, ppos);
+	if (ret || !write)
+		return ret;
+
+	spin_lock_irqsave(&scene_lock, flags);
+	scene_timestamp = jiffies;
+	if (current_scene > 0 && !disable_setting) {
+		apply_cpu_qos_boost(current_scene);
+		mod_timer(&scene_watchdog,
+			  jiffies + msecs_to_jiffies(SCENE_WATCHDOG_TIMEOUT_MS));
+	} else {
+		apply_cpu_qos_boost(0);
+		del_timer(&scene_watchdog);
+	}
+	spin_unlock_irqrestore(&scene_lock, flags);
+
+	return 0;
+}
+
+static struct ctl_table sched_assist_kern_table[] = {
+	{
+		.procname     = "sched_assist_scene",
+		.data         = &current_scene,
+		.maxlen       = sizeof(int),
+		.mode         = 0644,
+		.proc_handler = sched_assist_scene_sysctl,
+	},
+	{ }
+};
+
+static struct ctl_table sched_assist_root_table[] = {
+	{
+		.procname = "kernel",
+		.mode     = 0555,
+		.child    = sched_assist_kern_table,
+	},
+	{ }
+};
+static struct ctl_table_header *sched_assist_sysctl_header;
+#endif
+
 /* /proc/oplus_scheduler/sched_assist/ux_task */
 static int ux_task_show(struct seq_file *m, void *v)
 {
@@ -326,6 +385,144 @@ static const struct proc_ops ux_task_proc_ops = {
 	.proc_open    = ux_task_open,
 	.proc_read    = seq_read,
 	.proc_write   = ux_task_write,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
+};
+
+/* /proc/oplus_scheduler/sched_assist/ux_task_app */
+static int ux_task_app_show(struct seq_file *m, void *v)
+{
+	int i, count = 0;
+	unsigned long flags;
+
+	seq_puts(m, "[App UX Tasks]\n");
+	seq_puts(m, "PID\tNICE(ORIG/CUR)\tCOMM\n");
+
+	spin_lock_irqsave(&app_ux_lock, flags);
+	for (i = 0; i < MAX_TRACKED_TASKS; i++) {
+		if (app_ux_tasks[i].active) {
+			count++;
+			seq_printf(m, "%d\t%d/%d\t\t%s\n",
+				   app_ux_tasks[i].pid,
+				   app_ux_tasks[i].orig_nice,
+				   app_ux_tasks[i].boosted_nice,
+				   app_ux_tasks[i].comm);
+		}
+	}
+	spin_unlock_irqrestore(&app_ux_lock, flags);
+
+	seq_printf(m, "Total App UX tasks: %d\n", count);
+	return 0;
+}
+
+static int ux_task_app_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ux_task_app_show, NULL);
+}
+
+static ssize_t ux_task_app_write(struct file *filp, const char __user *ubuf,
+				 size_t cnt, loff_t *ppos)
+{
+	char kbuf[64];
+	char *token, *s;
+	pid_t pid = 0;
+	int val = 1;
+
+	if (cnt >= sizeof(kbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, ubuf, cnt))
+		return -EFAULT;
+	kbuf[cnt] = '\0';
+
+	s = strstrip(kbuf);
+	token = strsep(&s, " ");
+	if (!token || kstrtoint(token, 0, &pid))
+		return -EINVAL;
+
+	if (s) {
+		token = strstrip(s);
+		if (kstrtoint(token, 0, &val))
+			val = 1;
+	}
+
+	add_or_update_task(app_ux_tasks, &app_ux_lock, pid, -3, (val != 0));
+	return cnt;
+}
+
+static const struct proc_ops ux_task_app_proc_ops = {
+	.proc_open    = ux_task_app_open,
+	.proc_read    = seq_read,
+	.proc_write   = ux_task_app_write,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
+};
+
+/* /proc/oplus_scheduler/sched_assist/ddl_task */
+static int ddl_task_show(struct seq_file *m, void *v)
+{
+	int i, count = 0;
+	unsigned long flags;
+
+	seq_puts(m, "[DDL Tasks]\n");
+	seq_puts(m, "PID\tNICE(ORIG/CUR)\tCOMM\n");
+
+	spin_lock_irqsave(&ddl_lock, flags);
+	for (i = 0; i < MAX_TRACKED_TASKS; i++) {
+		if (ddl_tasks[i].active) {
+			count++;
+			seq_printf(m, "%d\t%d/%d\t\t%s\n",
+				   ddl_tasks[i].pid,
+				   ddl_tasks[i].orig_nice,
+				   ddl_tasks[i].boosted_nice,
+				   ddl_tasks[i].comm);
+		}
+	}
+	spin_unlock_irqrestore(&ddl_lock, flags);
+
+	seq_printf(m, "Total DDL tasks: %d\n", count);
+	return 0;
+}
+
+static int ddl_task_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ddl_task_show, NULL);
+}
+
+static ssize_t ddl_task_write(struct file *filp, const char __user *ubuf,
+			      size_t cnt, loff_t *ppos)
+{
+	char kbuf[64];
+	char *token, *s;
+	pid_t pid = 0;
+	int val = 1;
+
+	if (cnt >= sizeof(kbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, ubuf, cnt))
+		return -EFAULT;
+	kbuf[cnt] = '\0';
+
+	s = strstrip(kbuf);
+	token = strsep(&s, " ");
+	if (!token || kstrtoint(token, 0, &pid))
+		return -EINVAL;
+
+	if (s) {
+		token = strstrip(s);
+		if (kstrtoint(token, 0, &val))
+			val = 1;
+	}
+
+	add_or_update_task(ddl_tasks, &ddl_lock, pid, -4, (val != 0));
+	return cnt;
+}
+
+static const struct proc_ops ddl_task_proc_ops = {
+	.proc_open    = ddl_task_open,
+	.proc_read    = seq_read,
+	.proc_write   = ddl_task_write,
 	.proc_lseek   = seq_lseek,
 	.proc_release = single_release,
 };
@@ -439,6 +636,46 @@ static const struct proc_ops im_flag_proc_ops = {
 	.proc_release = single_release,
 };
 
+/* /proc/oplus_scheduler/sched_assist/im_flag_app */
+static int im_flag_app_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%d\n", im_flag_app_val);
+	return 0;
+}
+
+static int im_flag_app_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, im_flag_app_show, NULL);
+}
+
+static ssize_t im_flag_app_write(struct file *filp, const char __user *ubuf,
+				 size_t cnt, loff_t *ppos)
+{
+	char kbuf[16];
+	int val;
+
+	if (cnt >= sizeof(kbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, ubuf, cnt))
+		return -EFAULT;
+	kbuf[cnt] = '\0';
+
+	if (kstrtoint(strstrip(kbuf), 0, &val))
+		return -EINVAL;
+
+	im_flag_app_val = val;
+	return cnt;
+}
+
+static const struct proc_ops im_flag_app_proc_ops = {
+	.proc_open    = im_flag_app_open,
+	.proc_read    = seq_read,
+	.proc_write   = im_flag_app_write,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
+};
+
 /* /proc/oplus_scheduler/sched_assist/disable_setting */
 static int disable_setting_show(struct seq_file *m, void *v)
 {
@@ -528,6 +765,137 @@ static const struct proc_ops audio_enable_proc_ops = {
 	.proc_release = single_release,
 };
 
+/* /proc/oplus_scheduler/sched_assist/audio/status */
+static int audio_status_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%d\n", audio_status_val);
+	return 0;
+}
+
+static int audio_status_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, audio_status_show, NULL);
+}
+
+static ssize_t audio_status_write(struct file *filp, const char __user *ubuf,
+				  size_t cnt, loff_t *ppos)
+{
+	char kbuf[16];
+	int val;
+
+	if (cnt >= sizeof(kbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, ubuf, cnt))
+		return -EFAULT;
+	kbuf[cnt] = '\0';
+
+	if (kstrtoint(strstrip(kbuf), 0, &val))
+		return -EINVAL;
+
+	audio_status_val = val;
+	return cnt;
+}
+
+static const struct proc_ops audio_status_proc_ops = {
+	.proc_open    = audio_status_open,
+	.proc_read    = seq_read,
+	.proc_write   = audio_status_write,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
+};
+
+/* /proc/oplus_scheduler/sched_assist/tpd_cmds */
+static int tpd_cmds_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%d\n", tpd_cmds_val);
+	return 0;
+}
+
+static int tpd_cmds_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tpd_cmds_show, NULL);
+}
+
+static ssize_t tpd_cmds_write(struct file *filp, const char __user *ubuf,
+			      size_t cnt, loff_t *ppos)
+{
+	char kbuf[16];
+	int val;
+	unsigned long flags;
+
+	if (cnt >= sizeof(kbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, ubuf, cnt))
+		return -EFAULT;
+	kbuf[cnt] = '\0';
+
+	if (kstrtoint(strstrip(kbuf), 0, &val))
+		return -EINVAL;
+
+	tpd_cmds_val = val;
+	if (val > 0 && !disable_setting) {
+		spin_lock_irqsave(&scene_lock, flags);
+		current_scene = 3; /* ANIMATION_TOUCH */
+		scene_timestamp = jiffies;
+		apply_cpu_qos_boost(3);
+		mod_timer(&scene_watchdog,
+			  jiffies + msecs_to_jiffies(1000));
+		spin_unlock_irqrestore(&scene_lock, flags);
+	}
+
+	return cnt;
+}
+
+static const struct proc_ops tpd_cmds_proc_ops = {
+	.proc_open    = tpd_cmds_open,
+	.proc_read    = seq_read,
+	.proc_write   = tpd_cmds_write,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
+};
+
+/* /proc/oplus_scheduler/sched_assist/tpd_id */
+static int tpd_id_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%d\n", tpd_id_val);
+	return 0;
+}
+
+static int tpd_id_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, tpd_id_show, NULL);
+}
+
+static ssize_t tpd_id_write(struct file *filp, const char __user *ubuf,
+			    size_t cnt, loff_t *ppos)
+{
+	char kbuf[16];
+	int val;
+
+	if (cnt >= sizeof(kbuf))
+		return -EINVAL;
+
+	if (copy_from_user(kbuf, ubuf, cnt))
+		return -EFAULT;
+	kbuf[cnt] = '\0';
+
+	if (kstrtoint(strstrip(kbuf), 0, &val))
+		return -EINVAL;
+
+	tpd_id_val = val;
+	return cnt;
+}
+
+static const struct proc_ops tpd_id_proc_ops = {
+	.proc_open    = tpd_id_open,
+	.proc_read    = seq_read,
+	.proc_write   = tpd_id_write,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
+};
+
 static void init_qos_controllers(void)
 {
 	int cpu;
@@ -598,14 +966,30 @@ static int __init oplus_sched_assist_init(void)
 
 	audio_dir = proc_mkdir("audio", sched_assist_dir);
 
-	proc_create("sched_assist_scene", 0664, sched_assist_dir, &sched_assist_scene_proc_ops);
-	proc_create("ux_task", 0664, sched_assist_dir, &ux_task_proc_ops);
-	proc_create("sched_impt_task", 0664, sched_assist_dir, &sched_impt_task_proc_ops);
-	proc_create("im_flag", 0664, sched_assist_dir, &im_flag_proc_ops);
-	proc_create("disable_setting", 0664, sched_assist_dir, &disable_setting_proc_ops);
+	proc_create("sched_assist_scene", 0644, sched_assist_dir,
+		    &sched_assist_scene_proc_ops);
+	proc_create("ux_task", 0644, sched_assist_dir, &ux_task_proc_ops);
+	proc_create("ux_task_app", 0644, sched_assist_dir,
+		    &ux_task_app_proc_ops);
+	proc_create("ddl_task", 0644, sched_assist_dir, &ddl_task_proc_ops);
+	proc_create("sched_impt_task", 0644, sched_assist_dir,
+		    &sched_impt_task_proc_ops);
+	proc_create("im_flag", 0644, sched_assist_dir, &im_flag_proc_ops);
+	proc_create("im_flag_app", 0644, sched_assist_dir,
+		    &im_flag_app_proc_ops);
+	proc_create("disable_setting", 0644, sched_assist_dir,
+		    &disable_setting_proc_ops);
+	proc_create("tpd_cmds", 0644, sched_assist_dir, &tpd_cmds_proc_ops);
+	proc_create("tpd_id", 0644, sched_assist_dir, &tpd_id_proc_ops);
 
-	if (audio_dir)
-		proc_create("enable", 0664, audio_dir, &audio_enable_proc_ops);
+	if (audio_dir) {
+		proc_create("enable", 0644, audio_dir, &audio_enable_proc_ops);
+		proc_create("status", 0644, audio_dir, &audio_status_proc_ops);
+	}
+
+#ifdef CONFIG_SYSCTL
+	sched_assist_sysctl_header = register_sysctl_table(sched_assist_root_table);
+#endif
 
 	pr_info("oplus_sched_assist: Initialized sched_assist interfaces with %d QoS controllers\n",
 		qos_count);
@@ -614,18 +998,29 @@ static int __init oplus_sched_assist_init(void)
 
 static void __exit oplus_sched_assist_exit(void)
 {
+#ifdef CONFIG_SYSCTL
+	if (sched_assist_sysctl_header)
+		unregister_sysctl_table(sched_assist_sysctl_header);
+#endif
+
 	del_timer_sync(&scene_watchdog);
 	cleanup_qos_controllers();
 
 	if (audio_dir) {
+		remove_proc_entry("status", audio_dir);
 		remove_proc_entry("enable", audio_dir);
 		remove_proc_entry("audio", sched_assist_dir);
 	}
 
 	if (sched_assist_dir) {
+		remove_proc_entry("tpd_id", sched_assist_dir);
+		remove_proc_entry("tpd_cmds", sched_assist_dir);
 		remove_proc_entry("disable_setting", sched_assist_dir);
+		remove_proc_entry("im_flag_app", sched_assist_dir);
 		remove_proc_entry("im_flag", sched_assist_dir);
 		remove_proc_entry("sched_impt_task", sched_assist_dir);
+		remove_proc_entry("ddl_task", sched_assist_dir);
+		remove_proc_entry("ux_task_app", sched_assist_dir);
 		remove_proc_entry("ux_task", sched_assist_dir);
 		remove_proc_entry("sched_assist_scene", sched_assist_dir);
 		remove_proc_entry("sched_assist", oplus_sched_dir);
