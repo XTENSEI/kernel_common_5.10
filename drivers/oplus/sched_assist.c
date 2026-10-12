@@ -3,7 +3,7 @@
  * Copyright (C) 2020-2024 Oplus. All rights reserved.
  * Adapted for Linux 5.10 GKI by RapliVx
  *
- * Implements the OPlus Sched Assist (/proc/oplus_scheduler/sched_assist/*)
+ * Implements the OPlus Sched Assist (/proc/oplus_scheduler/sched_assist/)
  * interface utilized by ColorOS PerformanceService, Athena, and SystemUI
  * for user experience (UX) threads, scene-aware CPU QoS boosting,
  * and critical task latency management.
