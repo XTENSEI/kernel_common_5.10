@@ -115,70 +115,125 @@ found:
 		of_node_put(np);
 }
 
+static void query_scsi_device_info(struct gendisk *disk)
+{
+	struct device *dev = disk_to_dev(disk)->parent;
+	struct scsi_device *sdev;
+
+	if (!dev || !dev->bus || strcmp(dev->bus->name, "scsi"))
+		return;
+
+	sdev = to_scsi_device(dev);
+	if (!sdev)
+		return;
+
+	clean_scsi_string(storage_info.vendor, sdev->vendor,
+			  sizeof(storage_info.vendor), sizeof(sdev->vendor));
+	clean_scsi_string(storage_info.model, sdev->model,
+			  sizeof(storage_info.model), sizeof(sdev->model));
+	clean_scsi_string(storage_info.rev, sdev->rev,
+			  sizeof(storage_info.rev), sizeof(sdev->rev));
+}
+
+#define MAX_TRACKED_DISKS 16
+
 static void probe_universal_storage(void)
 {
-	struct block_device *bdev = NULL;
-	struct scsi_device *sdev;
-	struct device *dev;
+	struct block_device *bdev;
+	struct gendisk *counted_disks[MAX_TRACKED_DISKS];
+	int counted_count = 0;
 	static const char * const disk_paths[] = {
 		"/dev/block/sda",
+		"/dev/block/sdb",
+		"/dev/block/sdc",
+		"/dev/block/sdd",
+		"/dev/block/sde",
+		"/dev/block/sdf",
+		"/dev/block/sdg",
+		"/dev/block/sdh",
 		"/dev/block/by-name/userdata",
 		"/dev/block/bootdevice/by-name/userdata",
-		"/dev/block/sdb",
 		"/dev/block/mmcblk0"
 	};
-	int i;
+	u64 max_size_mb = 0;
+	u64 total_scsi_mb = 0;
+	int i, j;
 
 	memset(&storage_info, 0, sizeof(storage_info));
 
 	for (i = 0; i < ARRAY_SIZE(disk_paths); i++) {
 		bdev = blkdev_get_by_path(disk_paths[i], FMODE_READ, &storage_info);
-		if (!IS_ERR(bdev))
-			break;
-		bdev = NULL;
-	}
+		if (IS_ERR(bdev))
+			continue;
 
-	if (!bdev)
-		return;
+		if (bdev->bd_disk) {
+			struct gendisk *disk = bdev->bd_disk;
+			bool already_counted = false;
+			u64 cap_mb;
 
-	if (bdev->bd_disk) {
-		struct gendisk *disk = bdev->bd_disk;
-
-		storage_info.size_mb = (u64)(get_capacity(disk) >> 1) / 1024;
-
-		if (strncmp(disk->disk_name, "sd", 2) == 0) {
-			storage_info.is_ufs = true;
-			dev = disk_to_dev(disk)->parent;
-			if (dev && dev->bus && !strcmp(dev->bus->name, "scsi")) {
-				sdev = to_scsi_device(dev);
-				if (sdev) {
-					clean_scsi_string(storage_info.vendor, sdev->vendor,
-							  sizeof(storage_info.vendor), sizeof(sdev->vendor));
-					clean_scsi_string(storage_info.model, sdev->model,
-							  sizeof(storage_info.model), sizeof(sdev->model));
-					clean_scsi_string(storage_info.rev, sdev->rev,
-							  sizeof(storage_info.rev), sizeof(sdev->rev));
+			for (j = 0; j < counted_count; j++) {
+				if (counted_disks[j] == disk) {
+					already_counted = true;
+					break;
 				}
 			}
 
-			if (strlen(storage_info.vendor) == 0)
-				strscpy(storage_info.vendor, "GENERIC", sizeof(storage_info.vendor));
-			if (strlen(storage_info.model) == 0)
-				strscpy(storage_info.model, disk->disk_name, sizeof(storage_info.model));
-			if (strlen(storage_info.rev) == 0)
-				strscpy(storage_info.rev, "0001", sizeof(storage_info.rev));
+			if (!already_counted && counted_count < MAX_TRACKED_DISKS)
+				counted_disks[counted_count++] = disk;
 
-			detect_ufs_version();
-		} else if (strncmp(disk->disk_name, "mmcblk", 6) == 0) {
-			storage_info.is_emmc = true;
-			strscpy(storage_info.vendor, "MMC", sizeof(storage_info.vendor));
-			strscpy(storage_info.model, disk->disk_name, sizeof(storage_info.model));
-			strscpy(storage_info.rev, "5.1", sizeof(storage_info.rev));
-			strscpy(storage_info.version, "eMMC 5.1", sizeof(storage_info.version));
+			cap_mb = (u64)(get_capacity(disk) >> 1) / 1024;
+
+			if (strncmp(disk->disk_name, "sd", 2) == 0) {
+				storage_info.is_ufs = true;
+
+				if (!already_counted)
+					total_scsi_mb += cap_mb;
+
+				if (cap_mb > max_size_mb)
+					max_size_mb = cap_mb;
+
+				if (strlen(storage_info.vendor) == 0)
+					query_scsi_device_info(disk);
+			} else if (strncmp(disk->disk_name, "mmcblk", 6) == 0) {
+				if (!storage_info.is_ufs) {
+					storage_info.is_emmc = true;
+					if (cap_mb > max_size_mb)
+						max_size_mb = cap_mb;
+					strscpy(storage_info.vendor, "MMC",
+						sizeof(storage_info.vendor));
+					strscpy(storage_info.model, disk->disk_name,
+						sizeof(storage_info.model));
+					strscpy(storage_info.rev, "5.1",
+						sizeof(storage_info.rev));
+					strscpy(storage_info.version, "eMMC 5.1",
+						sizeof(storage_info.version));
+				}
+			}
 		}
+
+		blkdev_put(bdev, FMODE_READ);
 	}
 
-	blkdev_put(bdev, FMODE_READ);
+	if (storage_info.is_ufs) {
+		if (total_scsi_mb > max_size_mb)
+			storage_info.size_mb = total_scsi_mb;
+		else
+			storage_info.size_mb = max_size_mb;
+
+		if (strlen(storage_info.vendor) == 0)
+			strscpy(storage_info.vendor, "GENERIC",
+				sizeof(storage_info.vendor));
+		if (strlen(storage_info.model) == 0)
+			strscpy(storage_info.model, "UFS_DEVICE",
+				sizeof(storage_info.model));
+		if (strlen(storage_info.rev) == 0)
+			strscpy(storage_info.rev, "0001",
+				sizeof(storage_info.rev));
+
+		detect_ufs_version();
+	} else if (storage_info.is_emmc) {
+		storage_info.size_mb = max_size_mb;
+	}
 }
 
 static void probe_universal_ram(void)
@@ -256,8 +311,10 @@ static int devinfo_ufs_show(struct seq_file *m, void *v)
 	if (storage_info.is_ufs) {
 		seq_printf(m, "%s %s %s\n", storage_info.vendor, storage_info.model, storage_info.rev);
 		seq_printf(m, "vendor: %s\n", storage_info.vendor);
+		seq_printf(m, "manufacture: %s\n", storage_info.vendor);
 		seq_printf(m, "model: %s\n", storage_info.model);
 		seq_printf(m, "rev: %s\n", storage_info.rev);
+		seq_printf(m, "version: %s\n", storage_info.version);
 		seq_printf(m, "type: %s\n", storage_info.version);
 		seq_printf(m, "size: %lluMB\n", storage_info.size_mb);
 		seq_puts(m, "health: normal\n");
@@ -287,8 +344,10 @@ static int devinfo_emmc_show(struct seq_file *m, void *v)
 	if (storage_info.is_emmc) {
 		seq_printf(m, "%s %s %s\n", storage_info.vendor, storage_info.model, storage_info.rev);
 		seq_printf(m, "vendor: %s\n", storage_info.vendor);
+		seq_printf(m, "manufacture: %s\n", storage_info.vendor);
 		seq_printf(m, "model: %s\n", storage_info.model);
 		seq_printf(m, "rev: %s\n", storage_info.rev);
+		seq_printf(m, "version: %s\n", storage_info.version);
 		seq_printf(m, "type: %s\n", storage_info.version);
 		seq_printf(m, "size: %lluMB\n", storage_info.size_mb);
 	} else {
