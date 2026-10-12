@@ -210,7 +210,7 @@ static const struct proc_ops proc_cpu_info_fops = {
 	.proc_release = single_release,
 };
 
-/* Latency statistics formatter for /proc/oplus_healthinfo/* */
+/* Latency statistics formatter for /proc/oplus_healthinfo entries */
 static int latency_stat_show(struct seq_file *m, void *v)
 {
 	const char *module = m->private;
