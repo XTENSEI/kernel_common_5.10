@@ -44,13 +44,6 @@ bool is_fg(int uid)
 }
 EXPORT_SYMBOL_GPL(is_fg);
 
-/* CPU load tracking state */
-static DEFINE_MUTEX(cpu_load_lock);
-static unsigned long last_load_jiffies;
-static int cached_load;
-static struct cpu_load_sample prev_sample;
-static bool has_prev_sample;
-
 struct cpu_load_sample {
 	u64 t_user;
 	u64 t_system;
@@ -59,6 +52,13 @@ struct cpu_load_sample {
 	u64 t_irq;
 	u64 t_softirq;
 };
+
+/* CPU load tracking state */
+static DEFINE_MUTEX(cpu_load_lock);
+static unsigned long last_load_jiffies;
+static int cached_load;
+static struct cpu_load_sample prev_sample;
+static bool has_prev_sample;
 
 static u64 get_idle_time_ns(struct kernel_cpustat *kcs, int cpu)
 {
@@ -124,9 +124,8 @@ int ohm_get_cur_cpuload(void)
 
 	/* Return cached load if polled within 100ms */
 	if (has_prev_sample && time_before(now, last_load_jiffies + HZ / 10)) {
-		int ret = cached_load;
 		mutex_unlock(&cpu_load_lock);
-		return ret;
+		return cached_load;
 	}
 
 	get_cpu_sample(&cur_sample);
@@ -510,18 +509,19 @@ int __init oplus_healthinfo_init(void)
 	proc_create("iowait_hung", 0444, healthinfo_dir, &proc_iowait_hung_fops);
 	proc_create("kswapd_loading", 0444, healthinfo_dir, &proc_kswapd_loading_fops);
 	proc_create("ufs_feature", 0444, healthinfo_dir, &proc_ufs_feature_fops);
-	proc_create("para_update", 0666, healthinfo_dir, &proc_para_update_fops);
+	proc_create("para_update", 0644, healthinfo_dir, &proc_para_update_fops);
 
 	sched_thresh_dir = proc_mkdir("sched_thresh", healthinfo_dir);
 	if (sched_thresh_dir) {
-		proc_create("iowait_thresh", 0666, sched_thresh_dir, &proc_iowait_thresh_fops);
-		proc_create("sched_latency_thresh", 0666, sched_thresh_dir, &proc_sched_latency_thresh_fops);
+		proc_create("iowait_thresh", 0644, sched_thresh_dir,
+			    &proc_iowait_thresh_fops);
+		proc_create("sched_latency_thresh", 0644, sched_thresh_dir,
+			    &proc_sched_latency_thresh_fops);
 	}
 
 	fg_info_dir = proc_mkdir("fg_info", NULL);
-	if (fg_info_dir) {
-		proc_create("fg_uids", 0666, fg_info_dir, &proc_fg_uids_fops);
-	}
+	if (fg_info_dir)
+		proc_create("fg_uids", 0644, fg_info_dir, &proc_fg_uids_fops);
 
 	/* Initialize baseline CPU load sample */
 	get_cpu_sample(&prev_sample);
