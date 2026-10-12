@@ -55,4 +55,38 @@ config OPLUS_SCHED_ASSIST
 
 	  If unsure, say Y.
 
+config OPLUS_JANK_INFO
+	bool "OPLUS jank info and CLM support"
+	depends on OPLUS_HEALTHINFO
+	default y
+	help
+	  This option enables the OPlus CPU jank info interface located at
+	  /proc/jank_info/cpu_jank_info. It exposes real-time Core Load
+	  Monitoring (CLM), CPU load metrics, and foreground task tracking
+	  for ColorOS PerformanceService and FrameBoost telemetries.
+
+	  If unsure, say Y.
+
+config OPLUS_THEIA
+	bool "OPLUS Theia stability report support"
+	default y
+	help
+	  This option enables the OPlus Theia and system stability telemetry
+	  interfaces (/proc/theiaPwkReport, /proc/pwkMonitorParam,
+	  /proc/sau_pwknum, /proc/shutdown_detect, /proc/opbootfrom, and
+	  /proc/phoenix) required by vendor stability HAL services.
+
+	  If unsure, say Y.
+
+config OPLUS_AFS_CONFIG
+	bool "OPLUS anti-freeze service config support"
+	default y
+	help
+	  This option enables the OPlus application anti-freeze configuration
+	  interface located at /proc/oplus_afs_config. It provides dynamic
+	  freeze rule persistence and toggle states for ColorOS Athena and
+	  SystemUI background optimization services.
+
+	  If unsure, say Y.
+
 endmenu
