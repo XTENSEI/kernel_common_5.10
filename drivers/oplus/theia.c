@@ -6,7 +6,7 @@
  * Implements the OPlus Theia and Stability telemetry interfaces
  * (/proc/theiaPwkReport, /proc/pwkMonitorParam, /proc/sau_pwknum,
  * /proc/shutdown_detect, /proc/opbootfrom, /proc/phoenix, /proc/blackSwitch,
- * /proc/brightSwitch, /proc/force_reboot, and /proc/oplusVersion/*) required by
+ * /proc/brightSwitch, /proc/force_reboot, and /proc/oplusVersion sub-nodes) required by
  * vendor.oplus.hardware.stability.oplus_project-V1-service.
  */
 
@@ -350,7 +350,7 @@ static const struct proc_ops force_reboot_proc_ops = {
 	.proc_release = single_release,
 };
 
-/* Generic string proc helper for /proc/oplusVersion/* */
+/* Generic string proc helper for /proc/oplusVersion nodes */
 #define DEFINE_OPLUS_STR_NODE(name, default_val)			\
 static char name##_buf[64] = default_val;				\
 static int name##_show(struct seq_file *m, void *v)			\
