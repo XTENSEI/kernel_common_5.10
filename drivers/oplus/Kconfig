@@ -4,19 +4,55 @@ menu "OPLUS Features"
 config OPLUS_FEATURE
 	bool "OPLUS Features"
 	default y
+	help
+	  This option enables core drivers and interfaces required for ColorOS
+	  and OPlus system frameworks to operate properly on Linux kernels.
+	  Features include memory management, scheduler assist, and hardware
+	  probing interfaces.
+
+	  If unsure, say Y.
 
 config OPLUS_NANDSWAP
 	bool "OPLUS nandswap support"
 	depends on SWAP
 	default y
 	help
-	  This option enables OPLUS nandswap feature for ColorOS RAM Expansion.
+	  This option enables the OPlus nandswap subsystem, allowing dynamic
+	  RAM expansion (ColorOS dynamic RAM Expansion). It manages swap device
+	  routing, anonymous page eviction, and swapcache dropping.
+
+	  If unsure, say Y.
 
 config OPLUS_HEALTHINFO
 	bool "OPLUS healthinfo support"
 	default y
 	help
-	  This option enables OPLUS healthinfo procfs interface (/proc/oplus_healthinfo)
-	  for ColorOS performance and system resource management.
+	  This option enables the OPlus healthinfo procfs interface located at
+	  /proc/oplus_healthinfo. It provides userspace system daemons with
+	  memory and system health metrics required by ColorOS services.
+
+	  If unsure, say Y.
+
+config OPLUS_DEVINFO
+	bool "OPLUS device info support"
+	default y
+	help
+	  This option enables the OPlus device info interface (/proc/devinfo).
+	  It dynamically discovers attached block storage (UFS/eMMC) and system
+	  memory (DDR type/capacity) using standard Linux kernel subsystems
+	  without any hardcoded device tables.
+
+	  If unsure, say Y.
+
+config OPLUS_SCHED_ASSIST
+	bool "OPLUS sched assist support"
+	default y
+	help
+	  This option enables the OPlus scheduler assist interface located at
+	  /proc/oplus_scheduler/sched_assist. It provides real-time scene-based
+	  CPU frequency QoS boosting and dynamic CFS nice acceleration for
+	  user-experience (UX) and critical application threads.
+
+	  If unsure, say Y.
 
 endmenu
