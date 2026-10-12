@@ -12,4 +12,11 @@ config OPLUS_NANDSWAP
 	help
 	  This option enables OPLUS nandswap feature for ColorOS RAM Expansion.
 
+config OPLUS_HEALTHINFO
+	bool "OPLUS healthinfo support"
+	default y
+	help
+	  This option enables OPLUS healthinfo procfs interface (/proc/oplus_healthinfo)
+	  for ColorOS performance and system resource management.
+
 endmenu
