@@ -26,9 +26,15 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/sysctl.h>
+#include <linux/ioctl.h>
+#include <linux/compat.h>
 
 #define MAX_TRACKED_TASKS 64
 #define SCENE_WATCHDOG_TIMEOUT_MS 3000
+
+#define UX_MAGIC 0x27
+#define CMD_UX_READ  _IOR(UX_MAGIC, 0, int[2])
+#define CMD_UX_WRITE _IOW(UX_MAGIC, 1, int[3])
 
 /* Procfs directory entries */
 static struct proc_dir_entry *oplus_sched_dir;
@@ -346,6 +352,44 @@ static int ux_task_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+static int write_task_ux(pid_t pid, pid_t tid, int ux_value, bool is_system)
+{
+	pid_t target = tid ? tid : pid;
+
+	if (target <= 0)
+		return -EINVAL;
+
+	if (is_system)
+		add_or_update_task(ux_tasks, &ux_lock, target, -3, (ux_value != 0));
+	else
+		add_or_update_task(app_ux_tasks, &app_ux_lock, target, -3, (ux_value != 0));
+
+	return 0;
+}
+
+static int read_task_ux(pid_t pid, pid_t tid, bool is_system)
+{
+	pid_t target = tid ? tid : pid;
+	struct task_boost_entry *table = is_system ? ux_tasks : app_ux_tasks;
+	spinlock_t *lock = is_system ? &ux_lock : &app_ux_lock;
+	int i, ux_state = 0;
+	unsigned long flags;
+
+	if (target <= 0)
+		return -EINVAL;
+
+	spin_lock_irqsave(lock, flags);
+	for (i = 0; i < MAX_TRACKED_TASKS; i++) {
+		if (table[i].active && table[i].pid == target) {
+			ux_state = 1;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(lock, flags);
+
+	return ux_state;
+}
+
 static int ux_task_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, ux_task_show, NULL);
@@ -377,9 +421,40 @@ static ssize_t ux_task_write(struct file *filp, const char __user *ubuf,
 			val = 1;
 	}
 
-	add_or_update_task(ux_tasks, &ux_lock, pid, -3, (val != 0));
+	write_task_ux(pid, 0, val, true);
 	return cnt;
 }
+
+static long proc_ux_task_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	long ret = -EINVAL;
+	void __user *uarg = (void __user *)arg;
+
+	if (cmd == CMD_UX_READ) {
+		int read_ux_param[2];
+
+		if (copy_from_user(read_ux_param, uarg, sizeof(read_ux_param)))
+			return -EFAULT;
+
+		ret = read_task_ux(read_ux_param[0], read_ux_param[1], true);
+	} else if (cmd == CMD_UX_WRITE) {
+		int write_ux_param[3];
+
+		if (copy_from_user(write_ux_param, uarg, sizeof(write_ux_param)))
+			return -EFAULT;
+
+		ret = write_task_ux(write_ux_param[0], write_ux_param[1], write_ux_param[2], true);
+	}
+
+	return ret;
+}
+
+#ifdef CONFIG_COMPAT
+static long proc_ux_task_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	return proc_ux_task_ioctl(file, cmd, (unsigned long)(compat_ptr(arg)));
+}
+#endif
 
 static const struct proc_ops ux_task_proc_ops = {
 	.proc_open    = ux_task_open,
@@ -387,6 +462,10 @@ static const struct proc_ops ux_task_proc_ops = {
 	.proc_write   = ux_task_write,
 	.proc_lseek   = seq_lseek,
 	.proc_release = single_release,
+	.proc_ioctl   = proc_ux_task_ioctl,
+#ifdef CONFIG_COMPAT
+	.proc_compat_ioctl = proc_ux_task_compat_ioctl,
+#endif
 };
 
 /* /proc/oplus_scheduler/sched_assist/ux_task_app */
@@ -446,9 +525,40 @@ static ssize_t ux_task_app_write(struct file *filp, const char __user *ubuf,
 			val = 1;
 	}
 
-	add_or_update_task(app_ux_tasks, &app_ux_lock, pid, -3, (val != 0));
+	write_task_ux(pid, 0, val, false);
 	return cnt;
 }
+
+static long proc_ux_task_app_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	long ret = -EINVAL;
+	void __user *uarg = (void __user *)arg;
+
+	if (cmd == CMD_UX_READ) {
+		int read_ux_param[2];
+
+		if (copy_from_user(read_ux_param, uarg, sizeof(read_ux_param)))
+			return -EFAULT;
+
+		ret = read_task_ux(read_ux_param[0], read_ux_param[1], false);
+	} else if (cmd == CMD_UX_WRITE) {
+		int write_ux_param[3];
+
+		if (copy_from_user(write_ux_param, uarg, sizeof(write_ux_param)))
+			return -EFAULT;
+
+		ret = write_task_ux(write_ux_param[0], write_ux_param[1], write_ux_param[2], false);
+	}
+
+	return ret;
+}
+
+#ifdef CONFIG_COMPAT
+static long proc_ux_task_app_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	return proc_ux_task_app_ioctl(file, cmd, (unsigned long)(compat_ptr(arg)));
+}
+#endif
 
 static const struct proc_ops ux_task_app_proc_ops = {
 	.proc_open    = ux_task_app_open,
@@ -456,6 +566,10 @@ static const struct proc_ops ux_task_app_proc_ops = {
 	.proc_write   = ux_task_app_write,
 	.proc_lseek   = seq_lseek,
 	.proc_release = single_release,
+	.proc_ioctl   = proc_ux_task_app_ioctl,
+#ifdef CONFIG_COMPAT
+	.proc_compat_ioctl = proc_ux_task_app_compat_ioctl,
+#endif
 };
 
 /* /proc/oplus_scheduler/sched_assist/ddl_task */
@@ -966,25 +1080,25 @@ static int __init oplus_sched_assist_init(void)
 
 	audio_dir = proc_mkdir("audio", sched_assist_dir);
 
-	proc_create("sched_assist_scene", 0644, sched_assist_dir,
+	proc_create("sched_assist_scene", 0666, sched_assist_dir,
 		    &sched_assist_scene_proc_ops);
-	proc_create("ux_task", 0644, sched_assist_dir, &ux_task_proc_ops);
-	proc_create("ux_task_app", 0644, sched_assist_dir,
+	proc_create("ux_task", 0666, sched_assist_dir, &ux_task_proc_ops);
+	proc_create("ux_task_app", 0666, sched_assist_dir,
 		    &ux_task_app_proc_ops);
-	proc_create("ddl_task", 0644, sched_assist_dir, &ddl_task_proc_ops);
-	proc_create("sched_impt_task", 0644, sched_assist_dir,
+	proc_create("ddl_task", 0666, sched_assist_dir, &ddl_task_proc_ops);
+	proc_create("sched_impt_task", 0666, sched_assist_dir,
 		    &sched_impt_task_proc_ops);
-	proc_create("im_flag", 0644, sched_assist_dir, &im_flag_proc_ops);
-	proc_create("im_flag_app", 0644, sched_assist_dir,
+	proc_create("im_flag", 0666, sched_assist_dir, &im_flag_proc_ops);
+	proc_create("im_flag_app", 0666, sched_assist_dir,
 		    &im_flag_app_proc_ops);
-	proc_create("disable_setting", 0644, sched_assist_dir,
+	proc_create("disable_setting", 0666, sched_assist_dir,
 		    &disable_setting_proc_ops);
-	proc_create("tpd_cmds", 0644, sched_assist_dir, &tpd_cmds_proc_ops);
-	proc_create("tpd_id", 0644, sched_assist_dir, &tpd_id_proc_ops);
+	proc_create("tpd_cmds", 0666, sched_assist_dir, &tpd_cmds_proc_ops);
+	proc_create("tpd_id", 0666, sched_assist_dir, &tpd_id_proc_ops);
 
 	if (audio_dir) {
-		proc_create("enable", 0644, audio_dir, &audio_enable_proc_ops);
-		proc_create("status", 0644, audio_dir, &audio_status_proc_ops);
+		proc_create("enable", 0666, audio_dir, &audio_enable_proc_ops);
+		proc_create("status", 0666, audio_dir, &audio_status_proc_ops);
 	}
 
 #ifdef CONFIG_SYSCTL
