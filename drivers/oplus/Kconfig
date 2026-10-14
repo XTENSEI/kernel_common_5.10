@@ -89,4 +89,16 @@ config OPLUS_AFS_CONFIG
 
 	  If unsure, say Y.
 
+config OPLUS_SHELL_TEMP
+	bool "OPLUS shell temp driver for horae thermal daemon"
+	depends on THERMAL
+	default y
+	help
+	  This option enables the OPlus thermal shell temperature interface
+	  located at /proc/shell-temp. It is required by the ColorOS horae
+	  thermal daemon (/system_ext/bin/horae) to monitor front, frame,
+	  and back skin temperature.
+
+	  If unsure, say Y.
+
 endmenu

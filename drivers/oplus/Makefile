@@ -6,3 +6,4 @@ obj-$(CONFIG_OPLUS_SCHED_ASSIST) += sched_assist.o
 obj-$(CONFIG_OPLUS_JANK_INFO) += jank_info.o
 obj-$(CONFIG_OPLUS_THEIA) += theia.o
 obj-$(CONFIG_OPLUS_AFS_CONFIG) += afs_config.o
+obj-$(CONFIG_OPLUS_SHELL_TEMP) += horae_temp.o
