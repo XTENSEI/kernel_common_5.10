@@ -396,6 +396,10 @@ DEFINE_OPLUS_STR_NODE(RFType, "0");
 DEFINE_OPLUS_STR_NODE(modemType, "0");
 DEFINE_OPLUS_STR_NODE(engVersion, "release");
 DEFINE_OPLUS_STR_NODE(ocp, "0");
+DEFINE_OPLUS_STR_NODE(oplusBootmode, "normal");
+DEFINE_OPLUS_STR_NODE(isConfidential, "0");
+DEFINE_OPLUS_STR_NODE(cdt, "1");
+DEFINE_OPLUS_STR_NODE(feature, "0");
 
 static void init_prj_name(void)
 {
@@ -434,27 +438,31 @@ static int __init oplus_theia_init(void)
 	phoenix_heartbeat = jiffies;
 	init_prj_name();
 
-	proc_create("theiaPwkReport", 0644, NULL, &theia_pwk_report_proc_ops);
-	proc_create("pwkMonitorParam", 0644, NULL, &pwk_monitor_param_proc_ops);
-	proc_create("sau_pwknum", 0644, NULL, &sau_pwknum_proc_ops);
-	proc_create("shutdown_detect", 0644, NULL, &shutdown_detect_proc_ops);
+	proc_create("theiaPwkReport", 0666, NULL, &theia_pwk_report_proc_ops);
+	proc_create("pwkMonitorParam", 0666, NULL, &pwk_monitor_param_proc_ops);
+	proc_create("sau_pwknum", 0666, NULL, &sau_pwknum_proc_ops);
+	proc_create("shutdown_detect", 0666, NULL, &shutdown_detect_proc_ops);
 	proc_create("opbootfrom", 0444, NULL, &opbootfrom_proc_ops);
-	proc_create("phoenix", 0644, NULL, &phoenix_proc_ops);
-	proc_create("blackSwitch", 0644, NULL, &blackSwitch_proc_ops);
-	proc_create("brightSwitch", 0644, NULL, &brightSwitch_proc_ops);
-	proc_create("force_reboot", 0644, NULL, &force_reboot_proc_ops);
+	proc_create("phoenix", 0666, NULL, &phoenix_proc_ops);
+	proc_create("blackSwitch", 0666, NULL, &blackSwitch_proc_ops);
+	proc_create("brightSwitch", 0666, NULL, &brightSwitch_proc_ops);
+	proc_create("force_reboot", 0666, NULL, &force_reboot_proc_ops);
 
 	oplus_version_dir = proc_mkdir("oplusVersion", NULL);
 	if (oplus_version_dir) {
-		proc_create("prjName", 0644, oplus_version_dir, &prjName_proc_ops);
-		proc_create("prjVersion", 0644, oplus_version_dir, &prjVersion_proc_ops);
-		proc_create("pcbVersion", 0644, oplus_version_dir, &pcbVersion_proc_ops);
-		proc_create("serialID", 0644, oplus_version_dir, &serialID_proc_ops);
-		proc_create("operatorName", 0644, oplus_version_dir, &operatorName_proc_ops);
-		proc_create("RFType", 0644, oplus_version_dir, &RFType_proc_ops);
-		proc_create("modemType", 0644, oplus_version_dir, &modemType_proc_ops);
-		proc_create("engVersion", 0644, oplus_version_dir, &engVersion_proc_ops);
-		proc_create("ocp", 0644, oplus_version_dir, &ocp_proc_ops);
+		proc_create("prjName", 0666, oplus_version_dir, &prjName_proc_ops);
+		proc_create("prjVersion", 0666, oplus_version_dir, &prjVersion_proc_ops);
+		proc_create("pcbVersion", 0666, oplus_version_dir, &pcbVersion_proc_ops);
+		proc_create("serialID", 0666, oplus_version_dir, &serialID_proc_ops);
+		proc_create("operatorName", 0666, oplus_version_dir, &operatorName_proc_ops);
+		proc_create("RFType", 0666, oplus_version_dir, &RFType_proc_ops);
+		proc_create("modemType", 0666, oplus_version_dir, &modemType_proc_ops);
+		proc_create("engVersion", 0666, oplus_version_dir, &engVersion_proc_ops);
+		proc_create("ocp", 0666, oplus_version_dir, &ocp_proc_ops);
+		proc_create("oplusBootmode", 0666, oplus_version_dir, &oplusBootmode_proc_ops);
+		proc_create("isConfidential", 0666, oplus_version_dir, &isConfidential_proc_ops);
+		proc_create("cdt", 0666, oplus_version_dir, &cdt_proc_ops);
+		proc_create("feature", 0666, oplus_version_dir, &feature_proc_ops);
 	}
 
 	pr_info("oplus_theia: Theia and oplusVersion interfaces initialized\n");
@@ -464,6 +472,10 @@ static int __init oplus_theia_init(void)
 static void __exit oplus_theia_exit(void)
 {
 	if (oplus_version_dir) {
+		remove_proc_entry("feature", oplus_version_dir);
+		remove_proc_entry("cdt", oplus_version_dir);
+		remove_proc_entry("isConfidential", oplus_version_dir);
+		remove_proc_entry("oplusBootmode", oplus_version_dir);
 		remove_proc_entry("ocp", oplus_version_dir);
 		remove_proc_entry("engVersion", oplus_version_dir);
 		remove_proc_entry("modemType", oplus_version_dir);
