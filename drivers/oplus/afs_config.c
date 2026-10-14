@@ -129,8 +129,8 @@ static int __init oplus_afs_config_init(void)
 		return -ENOMEM;
 	}
 
-	proc_create("afs_enable", 0644, afs_dir, &afs_enable_proc_ops);
-	proc_create("afs_config", 0644, afs_dir, &afs_config_proc_ops);
+	proc_create("afs_enable", 0666, afs_dir, &afs_enable_proc_ops);
+	proc_create("afs_config", 0666, afs_dir, &afs_config_proc_ops);
 
 	pr_info("oplus_afs_config: Anti-freeze interfaces initialized\n");
 	return 0;

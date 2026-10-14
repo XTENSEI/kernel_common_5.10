@@ -382,41 +382,41 @@ static int __init oplus_jank_info_init(void)
 		return -ENOMEM;
 	}
 
-	proc_create("task_track_enable", 0644, cpu_jank_dir,
+	proc_create("task_track_enable", 0666, cpu_jank_dir,
 		    &task_track_enable_proc_ops);
-	proc_create("task_track", 0644, cpu_jank_dir,
+	proc_create("task_track", 0666, cpu_jank_dir,
 		    &task_track_proc_ops);
 	proc_create("cpu_load", 0444, cpu_jank_dir,
 		    &cpu_load_proc_ops);
 	proc_create("cpu_load32", 0444, cpu_jank_dir,
 		    &cpu_load32_proc_ops);
-	proc_create("cpu_load32_scale", 0644, cpu_jank_dir,
+	proc_create("cpu_load32_scale", 0666, cpu_jank_dir,
 		    &cpu_load32_scale_proc_ops);
-	proc_create("clm_enable", 0644, cpu_jank_dir,
+	proc_create("clm_enable", 0666, cpu_jank_dir,
 		    &clm_enable_proc_ops);
-	proc_create("clm_report_threshold", 0644, cpu_jank_dir,
+	proc_create("clm_report_threshold", 0666, cpu_jank_dir,
 		    &clm_report_threshold_proc_ops);
-	proc_create("fg_freqs_threshold", 0644, cpu_jank_dir,
+	proc_create("fg_freqs_threshold", 0666, cpu_jank_dir,
 		    &fg_freqs_threshold_proc_ops);
-	proc_create("clm_highload_all", 0644, cpu_jank_dir,
+	proc_create("clm_highload_all", 0666, cpu_jank_dir,
 		    &clm_highload_all_proc_ops);
-	proc_create("clm_highload_grp", 0644, cpu_jank_dir,
+	proc_create("clm_highload_grp", 0666, cpu_jank_dir,
 		    &clm_highload_grp_proc_ops);
-	proc_create("clm_lowload_grp", 0644, cpu_jank_dir,
+	proc_create("clm_lowload_grp", 0666, cpu_jank_dir,
 		    &clm_lowload_grp_proc_ops);
-	proc_create("clm_mux_switch", 0644, cpu_jank_dir,
+	proc_create("clm_mux_switch", 0666, cpu_jank_dir,
 		    &clm_mux_switch_proc_ops);
-	proc_create("bg_dstat_percent", 0644, cpu_jank_dir,
+	proc_create("bg_dstat_percent", 0666, cpu_jank_dir,
 		    &bg_dstat_percent_proc_ops);
 	proc_create("cpu_info", 0444, cpu_jank_dir,
 		    &cpu_info_proc_ops);
 	proc_create("version", 0444, cpu_jank_dir,
 		    &version_proc_ops);
-	proc_create("callstack", 0644, cpu_jank_dir,
+	proc_create("callstack", 0666, cpu_jank_dir,
 		    &callstack_proc_ops);
-	proc_create("cpu_info_sig", 0644, cpu_jank_dir,
+	proc_create("cpu_info_sig", 0666, cpu_jank_dir,
 		    &cpu_info_sig_proc_ops);
-	proc_create("load_indicator", 0644, cpu_jank_dir,
+	proc_create("load_indicator", 0666, cpu_jank_dir,
 		    &load_indicator_proc_ops);
 
 	pr_info("oplus_jank_info: cpu_jank_info interfaces initialized\n");
