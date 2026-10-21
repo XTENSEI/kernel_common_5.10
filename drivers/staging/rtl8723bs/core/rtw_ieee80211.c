@@ -379,6 +379,9 @@ unsigned char *rtw_get_wpa_ie(unsigned char *pie, int *wpa_ie_len, int limit)
 		pbuf = rtw_get_ie(pbuf, _WPA_IE_ID_, &len, limit_new);
 
 		if (pbuf) {
+			if (len < 6)
+				goto check_next_ie;
+
 			/* check if oui matches... */
 			if (memcmp((pbuf + 2), wpa_oui_type, sizeof(wpa_oui_type))) {
 				goto check_next_ie;
@@ -1287,6 +1290,9 @@ int rtw_action_frame_parse(const u8 *frame, u32 frame_len, u8 *category, u8 *act
 	u16 fc;
 	u8 c;
 	u8 a = ACT_PUBLIC_MAX;
+
+	if (frame_len < sizeof(struct ieee80211_hdr_3addr) + 2)
+		return false;
 
 	fc = le16_to_cpu(((struct ieee80211_hdr_3addr *)frame)->frame_control);
 

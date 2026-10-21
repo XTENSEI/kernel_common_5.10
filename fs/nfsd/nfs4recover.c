@@ -167,13 +167,24 @@ legacy_recdir_name_error(struct nfs4_client *clp, int error)
 
 static void
 __nfsd4_create_reclaim_record_grace(struct nfs4_client *clp,
-				    char *dname, struct nfsd_net *nn)
+		const char *dname, int len, struct nfsd_net *nn)
 {
-	struct xdr_netobj name = { .len = strlen(dname), .data = dname };
+	struct xdr_netobj name;
 	struct xdr_netobj princhash = { .len = 0, .data = NULL };
 	struct nfs4_client_reclaim *crp;
 
+	name.data = kmemdup(dname, len, GFP_KERNEL);
+	if (!name.data) {
+		dprintk("%s: failed to allocate memory for name.data!\n",
+			__func__);
+		return;
+	}
+	name.len = len;
 	crp = nfs4_client_to_reclaim(name, princhash, nn);
+	if (!crp) {
+		kfree(name.data);
+		return;
+	}
 	crp->cr_clp = clp;
 }
 
@@ -229,7 +240,8 @@ out_unlock:
 	inode_unlock(d_inode(dir));
 	if (status == 0) {
 		if (nn->in_grace)
-			__nfsd4_create_reclaim_record_grace(clp, dname, nn);
+			__nfsd4_create_reclaim_record_grace(clp, dname,
+					HEXDIR_LEN, nn);
 		vfs_fsync(nn->rec_file, 0);
 	} else {
 		printk(KERN_ERR "NFSD: failed to write recovery record"
@@ -242,7 +254,7 @@ out_creds:
 	nfs4_reset_creds(original_cred);
 }
 
-typedef int (recdir_func)(struct dentry *, char *, struct nfsd_net *);
+typedef int (recdir_func)(struct dentry *, struct dentry *, struct nfsd_net *);
 
 struct name_list {
 	char name[HEXDIR_LEN];
@@ -296,14 +308,23 @@ nfsd4_list_rec_dir(recdir_func *f, struct nfsd_net *nn)
 	}
 
 	status = iterate_dir(nn->rec_file, &ctx.ctx);
+	inode_lock_nested(d_inode(dir), I_MUTEX_PARENT);
 
 	list_for_each_entry_safe(entry, tmp, &ctx.names, list) {
-		if (!status)
-			status = f(dir, entry->name, nn);
-
+		if (!status) {
+			struct dentry *dentry;
+			dentry = lookup_one_len(entry->name, dir, HEXDIR_LEN-1);
+			if (IS_ERR(dentry)) {
+				status = PTR_ERR(dentry);
+				break;
+			}
+			status = f(dir, dentry, nn);
+			dput(dentry);
+		}
 		list_del(&entry->list);
 		kfree(entry);
 	}
+	inode_unlock(d_inode(dir));
 	nfs4_reset_creds(original_cred);
 
 	list_for_each_entry_safe(entry, tmp, &ctx.names, list) {
@@ -401,19 +422,18 @@ out:
 }
 
 static int
-purge_old(struct dentry *parent, char *cname, struct nfsd_net *nn)
+purge_old(struct dentry *parent, struct dentry *child, struct nfsd_net *nn)
 {
 	int status;
-	struct dentry *child;
 	struct xdr_netobj name;
 
-	if (strlen(cname) != HEXDIR_LEN - 1) {
-		printk("%s: illegal name %s in recovery directory\n",
-				__func__, cname);
+	if (child->d_name.len != HEXDIR_LEN - 1) {
+		printk("%s: illegal name %pd in recovery directory\n",
+				__func__, child);
 		/* Keep trying; maybe the others are OK: */
 		return 0;
 	}
-	name.data = kstrdup(cname, GFP_KERNEL);
+	name.data = kmemdup_nul(child->d_name.name, child->d_name.len, GFP_KERNEL);
 	if (!name.data) {
 		dprintk("%s: failed to allocate memory for name.data!\n",
 			__func__);
@@ -423,17 +443,10 @@ purge_old(struct dentry *parent, char *cname, struct nfsd_net *nn)
 	if (nfs4_has_reclaimed_state(name, nn))
 		goto out_free;
 
-	inode_lock_nested(d_inode(parent), I_MUTEX_PARENT);
-	child = lookup_one_len(cname, parent, HEXDIR_LEN - 1);
-	if (!IS_ERR(child)) {
-		status = vfs_rmdir(d_inode(parent), child);
-		if (status)
-			printk("failed to remove client recovery directory %pd\n",
-			       child);
-		dput(child);
-	}
-	inode_unlock(d_inode(parent));
-
+	status = vfs_rmdir(d_inode(parent), child);
+	if (status)
+		printk("failed to remove client recovery directory %pd\n",
+				child);
 out_free:
 	kfree(name.data);
 out:
@@ -464,18 +477,27 @@ out:
 }
 
 static int
-load_recdir(struct dentry *parent, char *cname, struct nfsd_net *nn)
+load_recdir(struct dentry *parent, struct dentry *child, struct nfsd_net *nn)
 {
-	struct xdr_netobj name = { .len = HEXDIR_LEN, .data = cname };
+	struct xdr_netobj name;
 	struct xdr_netobj princhash = { .len = 0, .data = NULL };
 
-	if (strlen(cname) != HEXDIR_LEN - 1) {
-		printk("%s: illegal name %s in recovery directory\n",
-				__func__, cname);
+	if (child->d_name.len != HEXDIR_LEN - 1) {
+		printk("%s: illegal name %pd in recovery directory\n",
+				__func__, child);
 		/* Keep trying; maybe the others are OK: */
 		return 0;
 	}
-	nfs4_client_to_reclaim(name, princhash, nn);
+	name.data = kmemdup_nul(child->d_name.name, child->d_name.len, GFP_KERNEL);
+	if (!name.data) {
+		dprintk("%s: failed to allocate memory for name.data!\n",
+			__func__);
+		goto out;
+	}
+	name.len = HEXDIR_LEN;
+	if (!nfs4_client_to_reclaim(name, princhash, nn))
+		kfree(name.data);
+out:
 	return 0;
 }
 
@@ -771,8 +793,6 @@ __cld_pipe_inprogress_downcall(const struct cld_msg_v2 __user *cmsg,
 {
 	uint8_t cmd, princhashlen;
 	struct xdr_netobj name, princhash = { .len = 0, .data = NULL };
-	char *namecopy __free(kfree) = NULL;
-	char *princhashcopy __free(kfree) = NULL;
 	uint16_t namelen;
 	struct cld_net *cn = nn->cld_net;
 
@@ -791,20 +811,20 @@ __cld_pipe_inprogress_downcall(const struct cld_msg_v2 __user *cmsg,
 				dprintk("%s: namelen should not be zero", __func__);
 				return -EINVAL;
 			}
-			namecopy = memdup_user(&ci->cc_name.cn_id, namelen);
-			if (IS_ERR(namecopy))
-				return PTR_ERR(namecopy);
-			name.data = namecopy;
+			name.data = memdup_user(&ci->cc_name.cn_id, namelen);
+			if (IS_ERR_OR_NULL(name.data))
+				return -EFAULT;
 			name.len = namelen;
 			if (get_user(princhashlen, &ci->cc_princhash.cp_len))
 				return -EFAULT;
 			if (princhashlen > 0) {
-				princhashcopy = memdup_user(
-					&ci->cc_princhash.cp_data,
-					princhashlen);
-				if (IS_ERR(princhashcopy))
-					return PTR_ERR(princhashcopy);
-				princhash.data = princhashcopy;
+				princhash.data = memdup_user(
+						&ci->cc_princhash.cp_data,
+						princhashlen);
+				if (IS_ERR_OR_NULL(princhash.data)) {
+					kfree(name.data);
+					return -EFAULT;
+				}
 				princhash.len = princhashlen;
 			} else
 				princhash.len = 0;
@@ -818,21 +838,21 @@ __cld_pipe_inprogress_downcall(const struct cld_msg_v2 __user *cmsg,
 				dprintk("%s: namelen should not be zero", __func__);
 				return -EINVAL;
 			}
-			namecopy = memdup_user(&cnm->cn_id, namelen);
-			if (IS_ERR(namecopy))
-				return PTR_ERR(namecopy);
-			name.data = namecopy;
+			name.data = memdup_user(&cnm->cn_id, namelen);
+			if (IS_ERR_OR_NULL(name.data))
+				return -EFAULT;
 			name.len = namelen;
 		}
-#ifdef CONFIG_NFSD_V4
 		if (name.len > 5 && memcmp(name.data, "hash:", 5) == 0) {
 			name.len = name.len - 5;
-			name.data = name.data + 5;
+			memmove(name.data, name.data + 5, name.len);
 			cn->cn_has_legacy = true;
 		}
-#endif
-		if (!nfs4_client_to_reclaim(name, princhash, nn))
+		if (!nfs4_client_to_reclaim(name, princhash, nn)) {
+			kfree(name.data);
+			kfree(princhash.data);
 			return -EFAULT;
+		}
 		return nn->client_tracking_ops->msglen;
 	}
 	return -EFAULT;

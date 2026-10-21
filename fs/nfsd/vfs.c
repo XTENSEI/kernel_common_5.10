@@ -1044,11 +1044,8 @@ nfsd_vfs_write(struct svc_rqst *rqstp, struct svc_fh *fhp, struct nfsd_file *nf,
 	nfsdstats.io_write += *cnt;
 	fsnotify_modify(file);
 	host_err = filemap_check_wb_err(file->f_mapping, since);
-	if (host_err < 0) {
-		nfsd_reset_write_verifier(nn);
-		trace_nfsd_writeverf_reset(nn, rqstp, host_err);
+	if (host_err < 0)
 		goto out_nfserr;
-	}
 
 	if (stable && use_wgather) {
 		host_err = wait_for_concurrent_writes(file);
@@ -1169,10 +1166,6 @@ nfsd_commit(struct svc_rqst *rqstp, struct svc_fh *fhp,
 						nfsd_net_id));
 			err2 = filemap_check_wb_err(nf->nf_file->f_mapping,
 						    since);
-			if (err2 < 0) {
-				nfsd_reset_write_verifier(nn);
-				trace_nfsd_writeverf_reset(nn, rqstp, err2);
-			}
 			err = nfserrno(err2);
 			break;
 		case -EINVAL:

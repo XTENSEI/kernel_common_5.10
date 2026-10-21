@@ -437,7 +437,7 @@ static int inet_csk_wait_for_connect(struct sock *sk, long timeo)
 	 * having to remove and re-insert us on the wait queue.
 	 */
 	for (;;) {
-		prepare_to_wait_exclusive(sk_sleep(sk), &wait,
+		prepare_to_wait_exclusive_lifo(sk_sleep(sk), &wait,
 					  TASK_INTERRUPTIBLE);
 		release_sock(sk);
 		if (reqsk_queue_empty(&icsk->icsk_accept_queue))
@@ -930,6 +930,15 @@ void inet_csk_destroy_sock(struct sock *sk)
 	sock_put(sk);
 }
 EXPORT_SYMBOL(inet_csk_destroy_sock);
+
+void inet_csk_prepare_for_destroy_sock(struct sock *sk)
+{
+	/* The below has to be done to allow calling inet_csk_destroy_sock */
+	if (sk->sk_protocol == IPPROTO_TCP)
+		tcp_clear_sock_ops_cb_flags(sk);
+	sock_set_flag(sk, SOCK_DEAD);
+	percpu_counter_inc(sk->sk_prot->orphan_count);
+}
 
 /* This function allows to force a closure of a socket after the call to
  * tcp/dccp_create_openreq_child().

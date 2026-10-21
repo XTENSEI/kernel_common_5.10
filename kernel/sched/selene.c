@@ -364,7 +364,6 @@ static bool selene_is_game_locked(const char *name, unsigned int len)
 
 static void selene_set_game(const char *name, unsigned int len)
 {
-	bool was_game = selene_active_is_game;
 	char *old = selene_active_game;
 
 	mutex_lock(&selene_lock);
@@ -425,8 +424,6 @@ static ssize_t foreground_app_store(struct kobject *kobj,
 				    struct kobj_attribute *attr,
 				    const char *buf, size_t count)
 {
-	unsigned int len;
-
 	/* Strip trailing newline */
 	while (count > 0 && (buf[count - 1] == '\n' || buf[count - 1] == ' '))
 		count--;
@@ -524,7 +521,6 @@ static ssize_t game_list_add_store(struct kobject *kobj,
 				   const char *buf, size_t count)
 {
 	struct selene_custom_game *cg;
-	unsigned int len;
 
 	while (count > 0 && (buf[count - 1] == '\n' || buf[count - 1] == ' '))
 		count--;

@@ -22338,6 +22338,7 @@ static int zenith_init(struct cpufreq_policy *policy)
 	tunables->thermal_active	= 0;
 	tunables->thermal_pressure_continuous =
 		ZENITH_DEFAULT_THERMAL_PRESSURE_CONTINUOUS;
+	tunables->prefer_silver_hot_bump_pct =
 		ZENITH_DEFAULT_PREFER_SILVER_HOT_BUMP_PCT;
 	tunables->brutal_decay_ms	= ZENITH_DEFAULT_BRUTAL_DECAY_MS;
 	tunables->thermal_util_derate	= ZENITH_DEFAULT_THERMAL_UTIL_DERATE;

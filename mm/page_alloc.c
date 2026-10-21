@@ -186,7 +186,7 @@ DEFINE_STATIC_KEY_FALSE(init_on_free);
 EXPORT_SYMBOL(init_on_free);
 
 static bool _init_on_alloc_enabled_early __read_mostly
-				= IS_ENABLED(CONFIG_INIT_ON_ALLOC_DEFAULT_ON);
+				= false;
 static int __init early_init_on_alloc(char *buf)
 {
 
@@ -195,7 +195,7 @@ static int __init early_init_on_alloc(char *buf)
 early_param("init_on_alloc", early_init_on_alloc);
 
 static bool _init_on_free_enabled_early __read_mostly
-				= IS_ENABLED(CONFIG_INIT_ON_FREE_DEFAULT_ON);
+				= false;
 static int __init early_init_on_free(char *buf)
 {
 	return kstrtobool(buf, &_init_on_free_enabled_early);
@@ -338,20 +338,7 @@ compound_page_dtor * const compound_page_dtors[NR_COMPOUND_DTORS] = {
  */
 int min_free_kbytes = 1024;
 int user_min_free_kbytes = -1;
-#ifdef CONFIG_DISCONTIGMEM
-/*
- * DiscontigMem defines memory ranges as separate pg_data_t even if the ranges
- * are not on separate NUMA nodes. Functionally this works but with
- * watermark_boost_factor, it can reclaim prematurely as the ranges can be
- * quite small. By default, do not boost watermarks on discontigmem as in
- * many cases very high-order allocations like THP are likely to be
- * unsupported and the premature reclaim offsets the advantage of long-term
- * fragmentation avoidance.
- */
 int watermark_boost_factor __read_mostly;
-#else
-int watermark_boost_factor __read_mostly = 15000;
-#endif
 int watermark_scale_factor = 10;
 
 /*

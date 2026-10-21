@@ -63,7 +63,7 @@ static unsigned int number_of_wakelocks;
 
 static inline bool wakelocks_limit_exceeded(void)
 {
-	return number_of_wakelocks > CONFIG_PM_WAKELOCKS_LIMIT;
+	return number_of_wakelocks >= CONFIG_PM_WAKELOCKS_LIMIT;
 }
 
 static inline void increment_wakelocks_number(void)
@@ -241,7 +241,7 @@ int pm_wake_lock(const char *buf)
 		do_div(timeout_ms, NSEC_PER_MSEC);
 		__pm_wakeup_event(wl->ws, timeout_ms);
 	} else {
-		__pm_stay_awake(wl->ws);
+		__pm_wakeup_event(wl->ws, 500);
 	}
 
 	wakelocks_lru_most_recent(wl);

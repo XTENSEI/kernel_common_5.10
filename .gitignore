@@ -156,3 +156,4 @@ x509.genkey
 
 # Documentation toolchain
 sphinx_*/
+.freebuff/

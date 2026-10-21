@@ -190,6 +190,8 @@ extern int try_to_del_timer_sync(struct timer_list *timer);
 extern int del_timer_sync(struct timer_list *timer);
 
 #define del_singleshot_timer_sync(t) del_timer_sync(t)
+/* 5.10 compat: timer_delete_sync was renamed from del_timer_sync in 5.15+ */
+#define timer_delete_sync del_timer_sync
 
 extern void init_timers(void);
 extern void run_local_timers(void);

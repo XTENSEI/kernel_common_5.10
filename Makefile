@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 5
 PATCHLEVEL = 10
-SUBLEVEL = 264
+SUBLEVEL = 272
 EXTRAVERSION =
 NAME = Dare mighty things
 
@@ -517,9 +517,9 @@ LINUXINCLUDE    := \
 		$(USERINCLUDE)
 
 KBUILD_AFLAGS   := -D__ASSEMBLY__ -fno-PIE
-KBUILD_CFLAGS   := -Wall -Wundef -Werror=strict-prototypes -Wno-trigraphs \
+KBUILD_CFLAGS   := -Wall -Wundef -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common -fshort-wchar -fno-PIE \
-		   -Werror=implicit-function-declaration -Werror=implicit-int \
+		   -Werror=implicit-int \
 		   -Werror=return-type -Wno-format-security \
 		   -std=gnu89
 KBUILD_CPPFLAGS := -D__KERNEL__
@@ -587,7 +587,23 @@ ifdef building_out_of_srctree
 endif
 
 ifneq ($(shell $(CC) --version 2>&1 | head -n 1 | grep clang),)
-include $(srctree)/scripts/Makefile.clang
+ifneq ($(CROSS_COMPILE),)
+CLANG_FLAGS	+= --target=$(notdir $(CROSS_COMPILE:%-=%))
+GCC_TOOLCHAIN_DIR := $(dir $(shell which $(CROSS_COMPILE)elfedit))
+CLANG_FLAGS	+= --prefix=$(GCC_TOOLCHAIN_DIR)$(notdir $(CROSS_COMPILE))
+GCC_TOOLCHAIN	:= $(realpath $(GCC_TOOLCHAIN_DIR)/..)
+endif
+ifneq ($(GCC_TOOLCHAIN),)
+CLANG_FLAGS	+= --gcc-toolchain=$(GCC_TOOLCHAIN)
+endif
+ifeq ($(LLVM_IAS),1)
+CLANG_FLAGS	+= -fintegrated-as
+else
+CLANG_FLAGS	+= -fno-integrated-as
+endif
+CLANG_FLAGS	+= -Werror=unknown-warning-option
+KBUILD_CPPFLAGS	+= $(CLANG_FLAGS)
+export CLANG_FLAGS
 endif
 
 # The expansion should be delayed until arch/$(SRCARCH)/Makefile is included.
@@ -750,7 +766,6 @@ include/config/auto.conf:
 endif # may-sync-config
 endif # need-config
 
-KBUILD_CFLAGS	+= $(call cc-option,-fno-delete-null-pointer-checks,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning,frame-address,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, format-truncation)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)
@@ -763,6 +778,15 @@ KBUILD_CFLAGS += -O3
 else ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS += -Os
 endif
+
+KBUILD_CFLAGS  += $(call cc-option,-mllvm -hot-cold-split=true)
+KBUILD_CFLAGS  += $(call cc-option,-mllvm -enable-ml-inliner=release)
+KBUILD_CFLAGS  += $(call cc-option,-mllvm -regalloc-enable-advisor=release)
+KBUILD_LDFLAGS += $(call cc-option,-mllvm -enable-ml-inliner=release)
+KBUILD_LDFLAGS += $(call cc-option,-mllvm -regalloc-enable-advisor=release)
+
+KBUILD_CFLAGS   += -march=armv8.2-a+lse+crypto+dotprod
+KBUILD_AFLAGS   += -march=armv8.2-a+lse+crypto+dotprod
 
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
@@ -1031,9 +1055,6 @@ KBUILD_CFLAGS   += $(call cc-option,-fconserve-stack)
 
 # Prohibit date/time macros, which would make the build non-deterministic
 KBUILD_CFLAGS   += -Werror=date-time
-
-# enforce correct pointer usage
-KBUILD_CFLAGS   += $(call cc-option,-Werror=incompatible-pointer-types)
 
 # Require designated initializers for all marked structures
 KBUILD_CFLAGS   += $(call cc-option,-Werror=designated-init)
