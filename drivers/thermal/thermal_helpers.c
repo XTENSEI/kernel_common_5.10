@@ -21,6 +21,8 @@
 
 #include <trace/events/thermal.h>
 
+#include "iyashi.h"
+#include "kasumi.h"
 #include "thermal_core.h"
 
 int get_tz_trend(struct thermal_zone_device *tz, int trip)
@@ -107,6 +109,10 @@ int thermal_zone_get_temp(struct thermal_zone_device *tz, int *temp)
 		if (!ret && *temp < crit_temp)
 			*temp = tz->emul_temperature;
 	}
+
+	/* Kasumi thermal dampening (skip zones excluded by zone_filter) */
+	if (!ret && kasumi_zone_allowed(tz->type))
+		*temp = kasumi_dampen(*temp, tz->type);
 
 	mutex_unlock(&tz->lock);
 exit:
@@ -206,6 +212,13 @@ void thermal_cdev_update(struct thermal_cooling_device *cdev)
 		if (instance->target > target)
 			target = instance->target;
 	}
+
+	/*
+	 * Iyashi may relax the chosen target when the bound zones are
+	 * still far from their trip points.  Called under cdev->lock so
+	 * iyashi_clamp_target() can safely walk &cdev->thermal_instances.
+	 */
+	target = iyashi_clamp_target(cdev, target);
 
 	thermal_cdev_set_cur_state(cdev, target);
 

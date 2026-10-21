@@ -184,6 +184,7 @@ bool compaction_zonelist_suitable(struct alloc_context *ac, int order,
 extern int kcompactd_run(int nid);
 extern void kcompactd_stop(int nid);
 extern void wakeup_kcompactd(pg_data_t *pgdat, int order, int highest_zoneidx);
+extern void wakeup_all_kcompactd(void);
 extern unsigned long isolate_and_split_free_page(struct page *page,
 				struct list_head *list);
 
@@ -237,6 +238,10 @@ static inline void kcompactd_stop(int nid)
 
 static inline void wakeup_kcompactd(pg_data_t *pgdat,
 				int order, int highest_zoneidx)
+{
+}
+
+static inline void wakeup_all_kcompactd(void)
 {
 }
 

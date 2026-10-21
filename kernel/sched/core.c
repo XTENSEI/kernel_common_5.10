@@ -12,6 +12,7 @@
 
 #include "sched.h"
 
+#include <linux/hikari.h>
 #include <linux/nospec.h>
 
 #include <linux/kcov.h>
@@ -1153,17 +1154,36 @@ uclamp_eff_get(struct task_struct *p, enum uclamp_id clamp_id)
 	return uc_req;
 }
 
+static inline unsigned long
+uclamp_apply_hikari_boost(struct task_struct *p, enum uclamp_id clamp_id,
+			  unsigned long base)
+{
+	unsigned int boost;
+
+	if (clamp_id != UCLAMP_MIN)
+		return base;
+
+	boost = hikari_uclamp_boost_amount(p);
+	if (!boost)
+		return base;
+	if (boost > SCHED_CAPACITY_SCALE)
+		boost = SCHED_CAPACITY_SCALE;
+	return max_t(unsigned long, base, boost);
+}
+
 unsigned long uclamp_eff_value(struct task_struct *p, enum uclamp_id clamp_id)
 {
 	struct uclamp_se uc_eff;
 
 	/* Task currently refcounted: use back-annotated (effective) value */
 	if (p->uclamp[clamp_id].active)
-		return (unsigned long)p->uclamp[clamp_id].value;
+		return uclamp_apply_hikari_boost(p, clamp_id,
+						 (unsigned long)p->uclamp[clamp_id].value);
 
 	uc_eff = uclamp_eff_get(p, clamp_id);
 
-	return (unsigned long)uc_eff.value;
+	return uclamp_apply_hikari_boost(p, clamp_id,
+					 (unsigned long)uc_eff.value);
 }
 EXPORT_SYMBOL_GPL(uclamp_eff_value);
 
@@ -3211,6 +3231,13 @@ try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
 #else
 	cpu = task_cpu(p);
 #endif /* CONFIG_SMP */
+
+	/*
+	 * Hikari: notify the wake-time policy engine that p is about
+	 * to be enqueued on cpu.  Marks audio-active CPUs and may
+	 * trigger downstream actuators for opted-in tasks.
+	 */
+	hikari_on_wake_up(p, cpu);
 
 	ttwu_queue(p, cpu, wake_flags);
 unlock:

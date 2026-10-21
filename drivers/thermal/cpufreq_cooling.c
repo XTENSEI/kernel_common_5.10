@@ -368,6 +368,75 @@ static unsigned int get_state_freq(struct cpufreq_cooling_device *cpufreq_cdev,
 	return policy->freq_table[idx].frequency;
 }
 
+/**
+ * cpufreq_cooling_floor_state_for_pct - find the deepest cooling state whose
+ *	target frequency is still >= (pct% of cpuinfo_max_freq).
+ * @cdev: thermal cooling device pointer.  Must be a cpufreq cooling device;
+ *	if it is not, the function returns 0.
+ * @pct:  desired frequency floor as a percent of cpuinfo_max_freq.
+ *	A value of 0 or > 100 returns 0.
+ *
+ * This is intended for callers (e.g. Iyashi) that want to express a
+ * cooling-state floor in intuitive percent-of-max-freq units instead of
+ * cooling-state units.  Returns 0 if the cdev is not a cpufreq cooling
+ * device, if its policy is gone, or if the pct is out of range -- a 0
+ * return means "do not clamp on this basis".
+ *
+ * Walks @cpufreq_cdev_list under @cooling_list_lock to verify @cdev is
+ * registered, then walks states 0 .. max_level looking for the deepest
+ * state whose @get_state_freq is still >= target.  State 0 == highest
+ * freq, state max_level == lowest freq.
+ *
+ * Return: deepest acceptable cooling state, or 0 on any failure/no-op.
+ */
+unsigned long cpufreq_cooling_floor_state_for_pct(
+		struct thermal_cooling_device *cdev,
+		unsigned int pct)
+{
+	struct cpufreq_cooling_device *iter, *found = NULL;
+	struct cpufreq_policy *policy;
+	unsigned int target_freq, this_freq;
+	unsigned long state, floor = 0;
+
+	if (!cdev || !cdev->devdata)
+		return 0;
+	if (pct == 0 || pct > 100)
+		return 0;
+
+	mutex_lock(&cooling_list_lock);
+	list_for_each_entry(iter, &cpufreq_cdev_list, node) {
+		if (cdev->devdata == iter) {
+			found = iter;
+			break;
+		}
+	}
+	if (!found) {
+		mutex_unlock(&cooling_list_lock);
+		return 0;
+	}
+
+	policy = found->policy;
+	if (!policy || !policy->cpuinfo.max_freq) {
+		mutex_unlock(&cooling_list_lock);
+		return 0;
+	}
+
+	target_freq = (unsigned int)((u64)policy->cpuinfo.max_freq * pct / 100U);
+
+	for (state = 0; state <= found->max_level; state++) {
+		this_freq = get_state_freq(found, state);
+		if (!this_freq)
+			break;
+		if (this_freq < target_freq)
+			break;
+		floor = state;
+	}
+
+	mutex_unlock(&cooling_list_lock);
+	return floor;
+}
+EXPORT_SYMBOL_GPL(cpufreq_cooling_floor_state_for_pct);
+
 /* cpufreq cooling device callback functions are defined below */
 
 /**

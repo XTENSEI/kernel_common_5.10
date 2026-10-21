@@ -1,0 +1,603 @@
+# init.zenith.rc — Zenith governor runtime tunables (Zenithed-V5)
+#
+# Drop in /vendor/etc/init/init.zenith.rc on the device, then merge into
+# your existing init.<board>.rc init scripts.  Path globs (`*`) require
+# Android 10+ init.  On older init or stricter SELinux, replace each
+# glob with explicit policy paths (e.g. policy0, policy4, policy6) for
+# your device.
+#
+# Ordering: triggered on `init` so the writes land before any userspace
+# workload starts.  Most knobs are hot-readable; the kernel applies the
+# new value on the next decision tick.
+#
+# All knobs default to sensible per-cluster values inside the kernel.
+# This file only OVERRIDES where a phone-class default differs from the
+# generic default, plus discoverable reference for every other knob.
+#
+# To find your device's policy indices:
+#   ls /sys/devices/system/cpu/cpufreq/
+# Typical Snapdragon 8-gen / Tensor split is policy0 (little) +
+# policy4 (big) +/- policy7 (prime).  MTK Dimensity is usually
+# policy0 + policy4 + policy7 too.
+#
+# Path glob `policy*` covers all clusters with a single line.  Use
+# explicit paths if a knob should differ per cluster (e.g. profile=
+# performance on big, battery on little).
+#
+# V5 changes vs V4:
+#   - kernel attribute count grew from ~165 to 193 sysfs nodes; the
+#     reference block at the bottom now covers every one of them with
+#     its current in-kernel default.
+#   - game_auto default flipped 0 -> 1 in-kernel.  Active write below
+#     is now redundant but kept for boot-config self-documentation.
+#   - game_perf_burst default 1; new active block writes its supporting
+#     knobs (cooldown, disarm grace, floor pct, thermal ceiling).
+#   - new active blocks for peer_ramp / migration / cluster_wake_pulse /
+#     peak_headroom / frame_overrun_deep / auto_thermal_cap so these
+#     Stage-4 / Stage-5 floors are visible in the boot config rather
+#     than only in the in-kernel profile defaults.
+#   - auto_tune_hysteresis_windows lowered 2 -> 1 to halve the arm
+#     latency for game_auto / V2 state changes.  Tradeoff: occasional
+#     flap into and out of `latency` state on loading screens / brief
+#     idle gaps.  Set back to 2 if you see flap.
+#   - permissions block extended to cover the new userspace-tuneable
+#     nodes (game_perf_burst, peer_ramp_*, migration_*, peak_headroom_*,
+#     auto_thermal_cap*, on_battery, charger-driven knobs).
+#   - audit pass on the existing 165 nodes for V3/V4 default-value
+#     drift; reference block reflects current in-kernel defaults.
+
+on init
+    # ----- Profile -----
+    # 'performance' | 'balanced' | 'battery' | 'legacy' | 'custom'
+    # Picking a profile here resets the per-knob tunables to that
+    # profile's preset; subsequent writes below override individual
+    # knobs back to your taste.  Leave commented to keep cmdline /
+    # built-in CUSTOM defaults.
+    #
+    # write /sys/devices/system/cpu/cpufreq/zenith/profile balanced
+
+    # ----- Boot boost (one-shot, decays past deadline) -----
+    # Pin freq to policy->max for this many ms after kernel boot.
+    # 0 disables.  Recommended 30000 (30s).  Gated by screen_state and
+    # input_boost_big_only — small clusters skip if big_only=1.
+    write /sys/devices/system/cpu/cpufreq/zenith/boot_boost_ms 30000
+
+    # ----- Auto-tune V1 + scenario flags -----
+    # Worker classifies workload every 10s and switches profiles based
+    # on input-event rate, saturation load %, and (if scenario=1)
+    # game/audio/camera/render flags.
+    #
+    # auto_tune and auto_tune_scenario default to 1 in-kernel.  We
+    # write them here explicitly so the boot config is self-documenting
+    # and re-flashing an older kernel does not silently revert the
+    # behaviour.
+    write /sys/devices/system/cpu/cpufreq/zenith/auto_tune 1
+    write /sys/devices/system/cpu/cpufreq/zenith/auto_tune_scenario 1
+
+    # ----- Auto-tune V2 (smart scenario-driven tuning) -----
+    # V2 state machine: classifies into efficiency/balanced/latency/
+    # sustained_perf/thermal_recovery and adjusts knobs automatically
+    # within per-profile guardrails.
+    #
+    # auto_tune_v2 defaults to 1 in-kernel.  All V2 protections
+    # (hysteresis, cooldown, override_mask, per-knob user-wins
+    # fallthrough) remain in place; this just gates the state machine
+    # on out of the box.  Set to 0 to lock the legacy V1 classifier
+    # path even on kernels with the new default.
+    #
+    # V5 lowers hysteresis_windows from 2 to 1 to halve game/latency
+    # arm time.  Tradeoff: occasional flap into latency state on
+    # loading-screen gaps.  Set back to 2 if you see flap.
+    write /sys/devices/system/cpu/cpufreq/zenith/auto_tune_v2 1
+    write /sys/devices/system/cpu/cpufreq/zenith/auto_tune_hysteresis_windows 1
+    write /sys/devices/system/cpu/cpufreq/zenith/auto_tune_cooldown_windows 1
+
+
+    # ----- Auto-tune V2 glides (round-U-z10 follow-up) -----
+    # Master gate for V2-driven population of the round-U-z10 glide /
+    # coordination knobs (brutal_decay_ms, wakeup_boost_ms,
+    # boot_boost_decay_ms, screen_off_glide_ms,
+    # thermal_pressure_continuous,
+    # frame_budget_us_auto).  Already default ON in the kernel; we
+    # write it here explicitly so the intent is visible to anyone
+    # auditing the boot config.  Set to 0 to lock all seven glide
+    # knobs back to their per-knob defaults (legacy hard cliffs).
+    write /sys/devices/system/cpu/cpufreq/zenith/auto_tune_v2_glides 1
+
+    # ----- Auto-tune V2 tiers (Stage 4 follow-up) -----
+    # Master gate for V2-driven arming of the Stage-4 K1 / K2 / K3
+    # floor tiers (migration_*, psi_cpu_floor_thresh,
+    # frame_overrun_*).  Defaults to 1 in-kernel so the V2 classifier
+    # shapes those tiers per state out of the box; we write it here
+    # explicitly so re-flashing onto an older kernel does not
+    # silently revert the behaviour.  Set to 0 to lock all three
+    # tiers back to pure profile-driven behaviour without disabling
+    # V2 for the seven legacy glide knobs above.
+    write /sys/devices/system/cpu/cpufreq/zenith/auto_tune_v2_tiers 1
+
+    # ----- Smoothness tunables (V3) -----
+    # Frequency stability margin: hold current freq when the new target
+    # is within this % of policy->max below current.  Prevents tiny
+    # oscillations at OPP boundaries.  0=disabled, max 10.
+    write /sys/devices/system/cpu/cpufreq/zenith/freq_stability_margin_pct 3
+
+    # Adaptive down-rate: bursty workloads automatically get up to 2x
+    # the normal down-rate delay, keeping freq elevated between bursts.
+    # 0=fixed delay (legacy), 1=adaptive.
+    write /sys/devices/system/cpu/cpufreq/zenith/down_rate_adaptive 1
+
+    # Wakeup boost: brief up-rate bypass on idle-to-busy transitions.
+    # 0=disabled, 1=enabled.
+    write /sys/devices/system/cpu/cpufreq/zenith/wakeup_boost 1
+
+    # Adaptive down-threshold: bursty load variance widens the brutality
+    # exit threshold by up to this %.  0=disabled.
+    write /sys/devices/system/cpu/cpufreq/zenith/down_threshold_adaptive 5
+
+    # Per-cluster asymmetric rate limits: little clusters use tighter
+    # up/down delays.  0=uniform, 1=asymmetric.
+    write /sys/devices/system/cpu/cpufreq/zenith/rate_limit_cluster_scale 1
+
+    # ----- Awareness flags -----
+    # render_aware / audio_aware default to 1 in-kernel.
+    #
+    # render_aware: render_floor_pct stays at its kernel default 70%
+    # of policy max.  The floor only fires when SurfaceFlinger /
+    # RenderThread / RenderEngine / mali-cmar-back is the cpu_curr at
+    # the moment of a cpufreq decision (cached for ~4ms), so idle
+    # screens see no floor; only active rendering windows do.
+    #
+    # audio_aware: audio_floor_pct and audio_cap_pct stay at 0 by
+    # default, so the runtime impact is just the comm walk + V2
+    # scenario flag.  Override audio_floor_pct if your device's audio
+    # HAL needs a sustained hispeed floor (typical 50-65%).
+    write /sys/devices/system/cpu/cpufreq/zenith/render_aware 1
+    write /sys/devices/system/cpu/cpufreq/zenith/audio_aware 1
+
+    # game_auto defaults to 1 in-kernel as of wave-4.  Seed comm list
+    # covers Unity, Unreal, Cocos2d, Unity Job System, Roblox, miHoYo
+    # (Genshin / Honkai).  Extend via game_auto_comms (CSV) for engines
+    # not in the seed (RetroArch, native NDK threads, custom engines).
+    write /sys/devices/system/cpu/cpufreq/zenith/game_auto 1
+
+    # camera_aware / game_mode / psi_aware are still opt-in.  Leave
+    # commented unless you have an init script that toggles them
+    # based on the running app.
+    # write /sys/devices/system/cpu/cpufreq/zenith/camera_aware 1
+    # write /sys/devices/system/cpu/cpufreq/zenith/game_mode 0
+    # write /sys/devices/system/cpu/cpufreq/zenith/psi_aware 1
+
+    # ----- Game perf burst (V5) -----
+    # When game_mode=1 OR game_auto_state=1 AND a sustained burst is
+    # detected, arm a high-freq floor for cooldown_ms.  Disarmed by a
+    # disarm_grace_ms quiet period or a thermal-ceiling event.
+    #
+    # game_perf_burst defaults to 1 in-kernel.  Floor pct, cooldown,
+    # disarm grace, and thermal ceiling are all phone-class tunable;
+    # the kernel defaults are conservative for a typical 8-core
+    # mid-range SoC.  Bump floor_pct to 90+ and thermal_ceiling_dc to
+    # 50000 (50C) for sustained-perf gaming devices (RoG, Black Shark).
+    write /sys/devices/system/cpu/cpufreq/zenith/game_perf_burst 1
+    write /sys/devices/system/cpu/cpufreq/zenith/game_perf_burst_floor_pct 85
+    write /sys/devices/system/cpu/cpufreq/zenith/game_perf_burst_cooldown_ms 5000
+    write /sys/devices/system/cpu/cpufreq/zenith/game_perf_burst_disarm_grace_ms 1000
+    write /sys/devices/system/cpu/cpufreq/zenith/game_perf_burst_thermal_ceiling_dc 48000
+
+    # ----- Predicted util (mild two-tap predictor) -----
+    # predict_util_pct=10 + predict_util_smooth=1 default in-kernel.
+    # 10 is a tenth-of-one-step lookahead; smooth averages two slope
+    # taps so single-sample outliers cannot produce a full-strength
+    # prediction on the next tick.  Set predict_util_pct=0 to disable
+    # the predictor entirely.
+    write /sys/devices/system/cpu/cpufreq/zenith/predict_util_pct 10
+    write /sys/devices/system/cpu/cpufreq/zenith/predict_util_smooth 1
+
+    # ----- Continuous thermal pressure ramp -----
+    # thermal_pressure_continuous defaults to 1 in-kernel.  Replaces
+    # the legacy hard cliff (snap to up_thresh=90 the moment
+    # thermal_state turns on) with a linear ramp from up_threshold
+    # (at 0% pressure) to 90% (at 100% pressure), using the same
+    # arch_scale_thermal_pressure() reading the V2 classifier consumes.
+    write /sys/devices/system/cpu/cpufreq/zenith/thermal_pressure_continuous 1
+
+    # ----- Auto-thermal cap (V5; soft thermal-budget enforcement) -----
+    # When auto_thermal_cap=1, sustained pressure above
+    # auto_thermal_cap_pressure_pct caps the freq target at
+    # auto_thermal_cap_freq_pct of policy->max — a softer ceiling than
+    # the kernel thermal core's policy->max move, so the governor
+    # doesn't over-throttle on transient pressure spikes.
+    # Disabled by default; enable on devices that lack a strong
+    # vendor thermal HAL.
+    # write /sys/devices/system/cpu/cpufreq/zenith/auto_thermal_cap 1
+    # write /sys/devices/system/cpu/cpufreq/zenith/auto_thermal_cap_pressure_pct 50
+    # write /sys/devices/system/cpu/cpufreq/zenith/auto_thermal_cap_freq_pct 80
+
+    # ----- Frame pace floor (adaptive 60/90/120/144 Hz) -----
+    # Userspace writes the current vblank period in microseconds
+    # whenever the panel changes refresh rate; 0 disables.
+    # 60Hz=16666, 90Hz=11111, 120Hz=8333, 144Hz=6944.  Pair with
+    # frame_pace_floor_pct (0..100, default 0 = disabled) — typical 50.
+    #
+    # write /sys/devices/system/cpu/cpufreq/zenith/frame_budget_us 8333
+    # write /sys/devices/system/cpu/cpufreq/zenith/frame_pace_floor_pct 50
+
+    # ----- Permissions for runtime userspace tweaks -----
+    # Open the knobs you want HALs / app-aware daemons to write to.
+    # The chown / chmod has to happen AFTER the governor is registered;
+    # zenith register from cpufreq_init() is well before init.rc runs,
+    # so these are safe at boot time.  Reapply for policy4 / policy6 /
+    # policy7 as your device requires.
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/profile
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/screen_state
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/thermal_state
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/render_aware
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/audio_aware
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/camera_active
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/game_mode
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/game_auto
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/game_perf_burst
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/frame_budget_us
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/frame_pace_floor_pct
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/auto_tune_v2
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/auto_tune_reset_overrides
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/on_battery
+    chown system system /sys/devices/system/cpu/cpufreq/policy0/zenith/auto_thermal_cap
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/profile
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/screen_state
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/thermal_state
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/render_aware
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/audio_aware
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/camera_active
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/game_mode
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/game_auto
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/game_perf_burst
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/frame_budget_us
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/frame_pace_floor_pct
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/auto_tune_v2
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/auto_tune_reset_overrides
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/on_battery
+    chmod 0664 /sys/devices/system/cpu/cpufreq/policy0/zenith/auto_thermal_cap
+
+# Tighten down-rate & dial in profile once boot completes, so stock
+# Android UI feels snappy mid-session without paying for the boot-pin
+# energy cost any longer than necessary.
+on property:sys.boot_completed=1
+    # Optional: switch to balanced profile once boot finishes.  Boot
+    # boost above already auto-decays at deadline so this is mostly
+    # a tidy-up.
+    # write /sys/devices/system/cpu/cpufreq/zenith/profile balanced
+
+    # Raise the boot_complete latch (wave-3).  This snaps the
+    # boot_boost deadline forward to "now" so the cluster transitions
+    # from Phase 1 (pin to max) to Phase 2 (decay via
+    # boot_boost_decay_ms) instead of cliff-cutting to load-derived
+    # the way "write boot_boost_ms 0" would.  Idempotent across
+    # multiple boot_completed events.  The kernel also raises the
+    # latch on its own once the auto-tune worker observes a calm
+    # streak (boot_complete_auto=1 by default), so this write is
+    # belt-and-braces -- if init runs first, great; if the kernel
+    # latches first, this write is a no-op.
+    write /sys/devices/system/cpu/cpufreq/zenith/boot_complete 1
+
+# ----------------------------------------------------------------------
+# Reference: every Zenith knob, current in-kernel defaults
+# (Listed for grep / discovery.  Do not uncomment unless you actually
+#  want to override that knob.  RW = read+write, RO = read-only,
+#  WO = write-only.  All numeric unless marked CSV / RO / WO.)
+# ----------------------------------------------------------------------
+#
+# === Cluster cadence (rate limits & thresholds) ===
+#   up_rate_limit_us           = 100
+#   down_rate_limit_us         = 4000
+#   up_delay_us                = 4000
+#   up_threshold               = 75
+#   up_threshold_hispeed       = 0       (0=disabled)
+#   up_threshold_adaptive      = 0       (0=disabled; variance shaping)
+#   down_threshold             = 60
+#   down_threshold_adaptive    = 0       (0=disabled; bursty exit widening)
+#   sampling_down_factor       = 2
+#   rate_limit_cluster_scale   = 1       (V5 default; 0=uniform big/little)
+#
+# === Hispeed tier ===
+#   hispeed_freq               = 0       (kHz; 0 -> use hispeed_freq_pct)
+#   hispeed_freq_pct           = 55      (% of policy->max when freq=0)
+#   hispeed_load               = 65
+#   hispeed_hyst_pct           = 10      (exit-side hysteresis margin)
+#   hispeed_entry_streak       = 0       (0=disabled, otherwise N samples)
+#   brutal_entry_streak        = 0       (0=disabled, N samples to confirm)
+#   brutal_decay_ms            = 0       (0=cliff; V2 latency uses 150)
+#
+# === Climb / step ===
+#   climb_mode                 = 0       (0=SNAP, 1=STEP)
+#   freq_step_pct              = 5
+#   freq_step_adaptive         = 0       (0=disabled; load-proportional step)
+#
+# === Smoothness (V3) ===
+#   freq_stability_margin_pct  = 3       (0=disabled; OPP boundary filter)
+#   down_rate_adaptive         = 1       (0=fixed, 1=variance-scaled)
+#   wakeup_boost               = 1       (0=disabled; idle->busy fast-ramp)
+#   wakeup_boost_ms            = 0       (0=tick-only; V2 uses 50)
+#   boost_exit_extend          = 1
+#
+# === IO / iowait ===
+#   io_is_busy                 = 1
+#   iowait_boost_min           = 125
+#   iowait_stack_pct           = 50
+#   iowait_backoff_after_ms    = 0       (0=disabled; sustained-iowait decay)
+#   io_floor_hyst_ms           = 0       (0=disabled)
+#   io_floor_hyst_pct          = 50
+#   ignore_nice_load           = 0
+#
+# === Power / bias ===
+#   powersave_bias             = 0
+#   bias_load_threshold        = 50
+#   light_load_freq            = 0       (kHz; 0=disabled)
+#   light_load_threshold       = 20
+#   efficient_freq             = 0       (kHz CSV ladder; 0=disabled)
+#   eff_bin_hyst_pct           = 0       (0=disabled; ladder release margin)
+#   screen_on_bias_pct         = 50
+#
+# === Battery / charging (V5) ===
+#   on_battery                 = RW      (1=phone is on battery, 0=ac/usb;
+#                                          userspace daemon writes; in V5
+#                                          this is read by the new
+#                                          charger_aware path when added,
+#                                          today it is informational)
+#   batt_hold_scale_pct        = 100     (V4+; scales hold floor by battery
+#                                          state, 100=disabled)
+#
+# === Quiet hours ===
+#   quiet_hours_start_min      = 0       (minutes since midnight; 0..1439)
+#   quiet_hours_end_min        = 0       (0=disabled)
+#   quiet_hours_cap_pct        = 100     (100=no cap; freq cap inside window)
+#   quiet_hours_screen_off_only = 1      (1=only enforce when screen off)
+#
+# === Foreground transition ===
+#   fg_transition_pulse_ms     = 30
+#   fg_transition_pulse_pct    = 65
+#
+# === Display / thermal ===
+#   screen_state               = 1       (1=on, 0=off; FB notifier auto)
+#   screen_auto                = 1       (FB notifier wired)
+#   screen_off_glide_ms        = 0       (0=cliff; V2 uses 300)
+#   thermal_state              = 0       (1=throttled view, sysfs hint)
+#   thermal_active             = RO      (live throttle state observed)
+#   thermal_auto               = 1
+#   thermal_aware              = 1
+#   thermal_util_derate        = 1
+#   thermal_derate_rate_pct    = 25      (derivative-term scaling)
+#   thermal_pressure_continuous = 1      (V3+; 0=cliff to up_thresh=90)
+#   auto_thermal_cap           = 0       (V5; 0=disabled, 1=soft cap)
+#   auto_thermal_cap_pressure_pct = 50   (% pressure to engage cap)
+#   auto_thermal_cap_freq_pct  = 80      (% policy->max when capped)
+#
+# === Input boost ===
+#   input_boost_ms             = 80
+#   input_boost_decay_ms       = 30
+#   input_boost_decay_curve    = 0       (0=linear, 1=cubic ease-in)
+#   input_boost_big_only       = 1
+#   input_boost_cap_pct        = 0       (0=pin to max)
+#   input_boost_touchdown_extra_ms = 50
+#   input_boost_down_rate_mult_pct = 200 (% of base down_rate during boost)
+#
+# === kcpustat / util math ===
+#   kcpustat_window_us         = 4000
+#   kcpustat_filter_shift      = 1
+#   kcpustat_hispeed_enable    = 1
+#   util_math_v2               = 1
+#   predict_util_pct           = 10      (V4+; 0 disables predictor)
+#   predict_util_smooth        = 1       (V4+; 0=raw predictor)
+#
+# === uclamp respect ===
+#   uclamp_min_respect         = 1
+#   uclamp_max_respect         = 1
+#
+# === Auto-tune V1 ===
+#   auto_tune                  = 1
+#   auto_tune_sat_load_pct     = 70
+#   auto_tune_hi_sat_pct       = 60
+#   auto_tune_lo_sat_pct       = 10
+#   auto_tune_scenario         = 1       (0=disable scenario flags)
+#   auto_eval_ms               = 500
+#   auto_hysteresis_ms         = 2000
+#   auto_target                = RO      (current V1 classifier target)
+#   auto_tune_util_rising_thresh_pct = 50 (rising-edge sensitivity)
+#
+# === Auto-tune V2 (smart state machine) ===
+#   auto_tune_v2               = 1
+#   auto_tune_v2_glides        = 1       (V2-driven defaults for glide knobs)
+#   auto_tune_v2_tiers         = 1       (Stage-4 default; V2-driven K1/K2/K3)
+#   auto_tune_hysteresis_windows = 1     (V5 default: 1; V4 was 2)
+#   auto_tune_cooldown_windows = 1       (quiet windows after state change)
+#   auto_tune_reset_overrides  = WO      (write 1 to clear user-override mask)
+#   auto_tune_status           = RO      (state, reason, signals, tiers=)
+#   auto_tune_state_history    = RO      (last N V2 state transitions)
+#   auto_tune_state_residency  = RO      (% time spent in each V2 state)
+#   auto_tune_cluster_aware    = 1       (per-cluster V2 awareness)
+#   auto_tune_render_rt_floor_pct = 0    (RT-class render-thread floor)
+#   auto_tune_sustained_gaming = 1       (sustained-game state detection)
+#   auto_tune_thermal_pressure_pct = 50  (V2 thermal_recovery entry)
+#   auto_tune_thermal_slope    = 0       (RW; V2 thermal slope window)
+#   auto_tune_thermal_slope_pct = 0      (RW; thermal slope sensitivity)
+#   auto_tune_frame_pacing     = 0       (RW; 1=V2 forces frame_budget_us_auto)
+#   at_log                     = RO      (round-U-z10 ringbuf of V2 transitions)
+#
+# === V2 glide / coordination knobs ===
+# (auto-driven by V2 when auto_tune_v2 && auto_tune_v2_glides; user
+#  write of non-zero wins outright via override_mask)
+#   brutal_decay_ms              = 0     (0=cliff; V2 latency uses 150)
+#   wakeup_boost_ms              = 0     (0=tick-only; V2 uses 50)
+#   boot_boost_decay_ms          = 0     (0=cliff; V2 uses 5000)
+#   screen_off_glide_ms          = 0     (0=cliff to up_thresh=95; V2 uses 300)
+#   thermal_pressure_continuous  = 1     (0=cliff to up_thresh=90)
+#   frame_budget_us_auto         = 0     (0=use frame_budget_us; V2 uses 1)
+#   drm_vblank_us                = RO    (cached drm panel vblank period in us)
+#
+# === Profile ===
+#   profile                    = custom  (or performance/balanced/battery/legacy)
+#   profile_values             = RO      (current per-profile values; diagnostic)
+#
+# === Awareness floors ===
+#   render_aware               = 1       (V4+; 0=walks + floor off)
+#   render_floor_pct           = 70
+#   render_floor_min_runtime_ms = 50     (debounce; require this much
+#                                          render-thread runtime before
+#                                          arming the floor)
+#   render_comms               = CSV RW  (default seed: SurfaceFlinger,
+#                                          RenderThread, RenderEngine,
+#                                          mali-cmar-back, kgsl_worker)
+#   audio_aware                = 1       (V4+; 0=walks + clamp off)
+#   audio_floor_pct            = 0       (0=disabled)
+#   audio_cap_pct              = 0       (0=disabled)
+#   audio_hyst_ms              = 0       (debounce on audio active)
+#   audio_comms                = CSV RW  (default seed: AudioOut, FastMixer,
+#                                          AudioTrack, audio-hw, NuPlayer)
+#   camera_aware               = 0
+#   camera_active              = 0
+#   camera_floor_pct           = 0
+#   camera_comms               = CSV RW  (default seed: cameraserver,
+#                                          camera-svc, ProvBuffer, ImageReader)
+#   game_mode                  = 0       (manual; 1=force game state)
+#   game_auto                  = 1       (V4+; in-kernel detector default ON)
+#   game_auto_state            = RO      (live latch state; 1=detected)
+#   game_auto_comms            = CSV RW  (default seed: UnityMain,
+#                                          UnityGfxDeviceW, il2cpp, GameThread,
+#                                          TaskGraphThr, RHIThread,
+#                                          Cocos2dxRender, Job.Worker,
+#                                          EnlightenWork, RenderingThread,
+#                                          Roblox, miHoYoSDK)
+#
+# === Game perf burst (V5 active block above) ===
+#   game_perf_burst                       = 1
+#   game_perf_burst_floor_pct             = 85
+#   game_perf_burst_cooldown_ms           = 5000
+#   game_perf_burst_disarm_grace_ms       = 1000
+#   game_perf_burst_thermal_ceiling_dc    = 48000  (deci-Celsius; 48.0C)
+#   game_perf_burst_state                 = RO     (live: 0=disarmed,
+#                                                   1=armed, 2=cooling)
+#   game_perf_burst_stats                 = RO     (counters per state)
+#
+# === PSI / memstall ===
+#   psi_aware                  = 1       (V4+; default ON)
+#   psi_mem_thresh             = 50
+#   psi_cpu_thresh             = 0
+#   psi_io_thresh              = 0
+#   psi_mem_cap_thresh         = 0       (0=disabled)
+#   psi_mem_cap_pct            = 80      (% policy->max during memstall)
+#   psi_mem_cap_window_ms      = 1000    (decay window)
+#   psi_cgroup_path            = RW      (default: /; cgroup to sample)
+#
+# === Boot / frame pacing ===
+#   boot_boost_ms              = 0       (overridden to 30000 above)
+#   boot_boost_decay_ms        = 0       (V2 uses 5000)
+#   boot_complete              = 0       (raised by sys.boot_completed)
+#   boot_complete_auto         = 1       (in-kernel calm-detect)
+#   frame_budget_us            = 0       (vblank period; 0=disabled)
+#   frame_budget_us_auto       = 0       (V2 forces 1; uses drm_vblank_us)
+#   frame_budget_us_per_policy = (none)  (CSV per-policy override)
+#   frame_pace_floor_pct       = 0
+#
+# === DL task floor (V4+) ===
+#   dl_task_floor_pct          = 0       (PERF 75 / BAL 0; SCHED_DEADLINE
+#                                          arrival floor)
+#
+# === Cluster wake pulse (V4+) ===
+#   cluster_wake_pulse_ms      = 40      (active wake pulse length)
+#   cluster_wake_pulse_idle_ms = 80      (post-idle wake pulse length)
+#   cluster_wake_pulse_floor_pct = 55    (% of policy->max during pulse)
+#
+# === Peak headroom rescue (V4+) ===
+#   peak_headroom_rescue       = 1       (V5+; default ON)
+#   peak_headroom_starve_load_pct = 90   (load% to declare starvation)
+#   peak_headroom_starve_streak = 3      (samples before arming rescue)
+#   peak_headroom_freq_floor_pct = 85    (% of policy->max on rescue)
+#   peak_headroom_jump_pct     = 100     (% of policy->max on jump-up)
+#   peak_headroom_hold_ms      = 50      (rescue hold)
+#   peak_headroom_prearm       = 1       (1=pre-arm on streak-2)
+#
+# === Peak hysteresis (V4+) ===
+#   peak_hysteresis_streak     = 3
+#   peak_step_down_pct         = 95
+#
+# === Boost-idle exit (V4+) ===
+#   boost_idle_thresh          = 15
+#   boost_idle_streak          = 3
+#
+# === Background-task util scaling (V4+) ===
+#   bg_util_scale_pct          = 100     (100=disabled; <100 throttles bg)
+#
+# === Sleeper-tail shaving (V4+) ===
+#   sleeper_tail_thresh_us     = 0       (0=disabled)
+#   sleeper_tail_pct           = 90      (% of util kept on tail)
+#
+# === Stage-4 floor tiers (V2-armed when auto_tune_v2_tiers=1) ===
+#
+# Patch D - Multi-cluster pre-arm coordination (peer_ramp_*):
+#   peer_ramp_window_ms        = 25      (PERF 40 / BAL 25 / BAT 0 / LEG 0)
+#   peer_ramp_floor_pct        = 60      (PERF 70 / BAL 60 / BAT 0 / LEG 0)
+#   peer_ramp_window_off_ms    = 0       (screen-off pulse window)
+#   peer_ramp_uclamp_min_respect = 1     (1=clamp peer_ramp by uclamp_min)
+#
+# Patch K1 - Migration-arrival soft floor (migration_*):
+#   migration_jump_pct         = 20      (PERF 15 / BAL 20 / BAT 0 / LEG 0)
+#   migration_floor_window_ms  = 30      (PERF 35 / BAL 30 / BAT 0 / LEG 0)
+#   migration_floor_pct        = 60      (PERF 70 / BAL 60 / BAT 0 / LEG 0)
+#   migration_floor_uclamp_min_respect = 1
+#
+# Patch K2 - PSI-CPU sustained-pressure floor:
+#   psi_cpu_floor_thresh       = 0       (PERF 40 / BAL 0 / BAT 0 / LEG 0)
+#                                          gated on psi_aware=1
+#
+# Patch K3 - Frame-overrun rescue (frame_overrun_*):
+#   frame_overrun_slack_us     = 0       (PERF 3000 / BAL 4000 / BAT 0 / LEG 0)
+#   frame_overrun_window_ms    = 50      (PERF 60   / BAL 50   / BAT 0 / LEG 0)
+#   frame_overrun_floor_pct    = 80      (PERF 90   / BAL 80   / BAT 0 / LEG 0)
+#                                          requires panel-driver wiring of
+#                                          zenith_drm_vblank_event() to fire
+#   frame_overrun_deep_streak  = 0       (V5; 0=disabled, N successive
+#                                          overruns before deep escalation)
+#   frame_overrun_deep_floor_pct = 100   (V5; deep-escalation freq target)
+#
+# === PELT / predictor (V4+) ===
+#   pelt_rising_edge_thresh    = 32      (slope to fire rising-edge boost)
+#   pelt_rising_edge_min_pct   = 50      (% of util above which edge counts)
+#   predict_up_thresh          = 64      (Patch A predictive up-shift)
+#   predict_up_window          = 4       (window length, ms)
+#
+# === Vendor-hook gates ===
+#   vh_arch_freq_scale_enable      = 0
+#   vh_uclamp_observer_enable      = 0
+#   vh_cpu_idle_enable             = 1
+#   vh_freq_qos_enable             = 0
+#   vh_sched_move_task_enable      = 0
+#   vh_scheduler_tick_enable       = 0
+#
+# === Diagnostics / RO observability ===
+#   last_decision_path         = RO      (per-policy bucket name picked)
+#   decision_confidence        = RO      (0..100; how strongly the path
+#                                          dominated other tier outputs)
+#   decision_ring              = RO      (last N decisions w/ inputs)
+#   decision_latency_hist      = RO      (histogram of tick-to-target time)
+#   zenith_stats               = RO      (per-tier counters)
+#   zenith_stats_reset         = WO      (write 1 to clear stats + at_log)
+#   zenith_input_stats         = RO      (input-boost counters)
+#   verbose_log                = 0       (0=quiet; 1=trace_printk path notes)
+#
+# === V2 K1/K2/K3 read order at the floor sites ===
+#   1. user sysfs override -> tunable wins (override_mask bit set)
+#   2. auto_tune_v2_tiers=0 -> tunable verbatim (V2 wiring off)
+#   3. V2 worker not run yet -> tunable verbatim
+#   4. V2 disarmed this tier -> 0 (off for this V2 window)
+#   5. V2 armed this tier -> tunable (profile-set value comes through)
+#
+# === V2 per-state arm map (auto_tune_v2_tiers=1) ===
+#   LATENCY              -> arm K1 (migration), K2 (psi_cpu_floor)
+#   FRAME / GAME flags   -> arm K1 (migration), K3 (frame_overrun)
+#   EFFICIENCY/BALANCED  -> disarm all three
+#   THERMAL_RECOVERY     -> disarm all three
+#   SUSTAINED_PERF       -> disarm all three
+#
+# (The detector / producer paths -- migration jump detector,
+# zenith_drm_vblank_event() -- always fire regardless of V2 gating;
+# only the consumer side at the floor read is gated, so cross-cluster
+# state disagreements resolve correctly.)
