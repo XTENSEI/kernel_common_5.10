@@ -40,6 +40,15 @@ void cpufreq_cooling_unregister(struct thermal_cooling_device *cdev);
 struct thermal_cooling_device *
 of_cpufreq_cooling_register(struct cpufreq_policy *policy);
 
+/**
+ * cpufreq_cooling_floor_state_for_pct - deepest cooling state whose freq is
+ *	still >= pct% of cpuinfo_max_freq.  Returns 0 for non-cpufreq cdevs
+ *	or out-of-range pct, signalling "do not clamp".
+ */
+unsigned long cpufreq_cooling_floor_state_for_pct(
+		struct thermal_cooling_device *cdev,
+		unsigned int pct);
+
 #else /* !CONFIG_CPU_FREQ_THERMAL */
 static inline struct thermal_cooling_device *
 cpufreq_cooling_register(struct cpufreq_policy *policy)
@@ -57,6 +66,13 @@ static inline struct thermal_cooling_device *
 of_cpufreq_cooling_register(struct cpufreq_policy *policy)
 {
 	return NULL;
+}
+
+static inline unsigned long cpufreq_cooling_floor_state_for_pct(
+		struct thermal_cooling_device *cdev,
+		unsigned int pct)
+{
+	return 0;
 }
 #endif /* CONFIG_CPU_FREQ_THERMAL */
 

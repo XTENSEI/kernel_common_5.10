@@ -225,6 +225,9 @@ void devm_devfreq_remove_device(struct device *dev, struct devfreq *devfreq);
 int devfreq_suspend_device(struct devfreq *devfreq);
 int devfreq_resume_device(struct devfreq *devfreq);
 
+/* Switch devfreq governor at runtime */
+int devfreq_set_governor(struct devfreq *df, const char *name);
+
 void devfreq_suspend(void);
 void devfreq_resume(void);
 
@@ -259,6 +262,8 @@ void devm_devfreq_unregister_notifier(struct device *dev,
 struct devfreq *devfreq_get_devfreq_by_node(struct device_node *node);
 struct devfreq *devfreq_get_devfreq_by_phandle(struct device *dev,
 				const char *phandle_name, int index);
+struct devfreq *devfreq_get_devfreq_by_name(const char *name);
+struct devfreq *devfreq_find_gpu_devfreq(void);
 
 #if IS_ENABLED(CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND)
 /**
@@ -418,6 +423,16 @@ static inline struct devfreq *devfreq_get_devfreq_by_node(struct device_node *no
 
 static inline struct devfreq *devfreq_get_devfreq_by_phandle(struct device *dev,
 					const char *phandle_name, int index)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline struct devfreq *devfreq_get_devfreq_by_name(const char *name)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline struct devfreq *devfreq_find_gpu_devfreq(void)
 {
 	return ERR_PTR(-ENODEV);
 }

@@ -189,6 +189,82 @@ config CPU_IDLE_THERMAL
 	  idle cycle.
 endif
 
+config IYASHI
+	bool "Iyashi thermal performance floor"
+	default y
+	help
+	  Enable the Iyashi (癒し) performance floor.  Iyashi runs from
+	  thermal_cdev_update() and may relax the cooling target chosen
+	  by the active thermal governor when the bound thermal zones
+	  are still far from their trip points, holding the CPU at a
+	  configurable performance floor (default 90% of max OPP).
+
+	  As soon as the closest bound trip is within near_limit_offset_c
+	  degrees (default 5C), Iyashi steps aside and lets the framework
+	  throttle normally.
+
+	  Tunables live under /sys/kernel/iyashi/.
+
+	  If unsure, say Y.
+
+config IYASHI_DEBUG_MSG
+	bool "Iyashi verbose boot diagnostics"
+	depends on IYASHI
+	default y
+	help
+	  When enabled, Iyashi prints self-test results and other
+	  verbose boot-time diagnostics via pr_info.  Disable to strip
+	  those strings from the kernel image.
+
+	  If unsure, say Y.
+
+config KASUMI
+	bool "Kasumi thermal dampening"
+	default y
+	help
+	  Enable Kasumi (霞) thermal dampening.  Kasumi sits in the
+	  thermal_zone_get_temp() path and may subtract a configurable
+	  offset from the reported temperature, delaying thermal
+	  throttling during short bursts.
+
+	  When disabled, temperature readings pass through unchanged
+	  and /sys/kernel/kasumi/ is not created.
+
+	  If unsure, say Y.
+
+config KASUMI_DEBUG_MSG
+	bool "Kasumi verbose boot diagnostics"
+	depends on KASUMI
+	default y
+	help
+	  When enabled, Kasumi prints self-test results and other
+	  verbose boot-time diagnostics via pr_info.  Disable to strip
+	  those strings from the kernel image.
+
+	  If unsure, say Y.
+
+config THERMAL_CHARGER_GUARD
+	bool "Auto-suppress Kasumi/Iyashi while a charger is online"
+	depends on POWER_SUPPLY
+	depends on KASUMI || IYASHI
+	default y
+	help
+	  Some userspace battery managers (notably on Transsion ROMs)
+	  read the post-Kasumi-dampened thermal_zone temperatures and
+	  refuse to start charging until the reading falls inside a
+	  vendor-specific band.  Because Kasumi lags the real
+	  temperature on purpose, the band check spins and the device
+	  throws spurious "won't charge until normal temps" warnings.
+
+	  When enabled, this driver registers a power_supply notifier
+	  and transparently suppresses Kasumi and Iyashi for the
+	  duration of any charging session, restoring them on unplug.
+	  The user-visible /sys/kernel/{kasumi,iyashi}/enabled knob is
+	  not modified; the suppression flag is observable read-only
+	  at /sys/kernel/{kasumi,iyashi}/charger_suppressed.
+
+	  If unsure, say Y.
+
 config DEVFREQ_THERMAL
 	bool "Generic device cooling support"
 	depends on PM_DEVFREQ
