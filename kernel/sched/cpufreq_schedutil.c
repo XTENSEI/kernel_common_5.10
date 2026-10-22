@@ -196,7 +196,6 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	unsigned int freq = arch_scale_freq_invariant() ?
 				policy->cpuinfo.max_freq : policy->cur;
 	unsigned int idx, l_freq, h_freq;
-	unsigned long next_freq = 0;
 
 	freq = map_util_freq(util, freq, max);
 
