@@ -35,7 +35,7 @@
 /* State                                                               */
 /* ------------------------------------------------------------------ */
 static DEFINE_MUTEX(koakuma_lock);
-static bool koakuma_enabled = true;
+static bool koakuma_enabled = false;
 static unsigned int koakuma_max_preload_mb = 64;
 static unsigned long koakuma_last_preloaded_bytes;
 

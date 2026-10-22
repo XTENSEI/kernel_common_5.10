@@ -34,7 +34,7 @@
  *   ramp_start <= real < ceiling : offset tapers to 0   (smooth ramp)
  *   real >= ceiling   : reported = real                 (safety)
  */
-static unsigned int kasumi_enable     __read_mostly = 1;
+static unsigned int kasumi_enable     __read_mostly;
 static unsigned int kasumi_offset_mc  __read_mostly = 5000;  /* 5 C  */
 static unsigned int kasumi_ramp_mc    __read_mostly = 85000;  /* 85 C  */
 static unsigned int kasumi_ceiling_mc __read_mostly = 95000;  /* 95 C  */

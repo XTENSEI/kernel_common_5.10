@@ -256,7 +256,7 @@ static struct hikari_tstate *hikari_state(struct task_struct *p)
  * pass through proc_douintvec_minmax which is a WRITE_ONCE-like
  * store on the slow path.
  */
-static unsigned int hikari_enable_value = 1;
+static unsigned int hikari_enable_value;
 static unsigned int hikari_wake_threshold_us = 1000;
 static unsigned int hikari_uclamp_boost_pct = 30;
 static unsigned int hikari_uclamp_ttl_ms = 16;
@@ -912,6 +912,16 @@ void hikari_on_dequeue(struct task_struct *p, struct rq *rq)
 {
 	struct hikari_tstate *st;
 	u32 last, now32, delta, ewma, threshold_ns;
+
+	/*
+	 * Hikari ships compiled in but disabled.  Gate the hook on the
+	 * static key so a disabled build costs nothing here; without it
+	 * the skip-reason stamp below would still write the task state
+	 * on every pick, which is pure overhead on the hottest path in
+	 * the scheduler.
+	 */
+	if (!static_branch_unlikely(&hikari_active_key))
+		return;
 
 	if (!hikari_task_active(p)) {
 		/*

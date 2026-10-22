@@ -40,7 +40,7 @@
 /* State                                                               */
 /* ------------------------------------------------------------------ */
 static DEFINE_MUTEX(lucid_lock);
-static bool lucid_enabled = true;
+static bool lucid_enabled = false;
 static int lucid_oom_game = -900;
 static int lucid_oom_bg   =  500;
 static atomic_t lucid_killed_count = ATOMIC_INIT(0);
