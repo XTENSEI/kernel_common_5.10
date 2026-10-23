@@ -1005,54 +1005,6 @@ struct devfreq *devm_devfreq_add_device(struct device *dev,
 }
 EXPORT_SYMBOL(devm_devfreq_add_device);
 
-/**
- * devfreq_set_governor - Switch a devfreq device's governor at runtime
- * @df:   the devfreq device
- * @name: name of the target governor (e.g. "performance", "powersave",
- *        "simple_ondemand")
- *
- * Safely stops the current governor, swaps in the new one, and starts
- * it.  Returns 0 on success, negative errno on failure (governor not
- * found, immutable, or event_handler error).
- */
-int devfreq_set_governor(struct devfreq *df, const char *name)
-{
-	struct devfreq_governor *governor;
-	int ret = 0;
-
-	if (!df->governor)
-		return -EINVAL;
-
-	mutex_lock(&devfreq_list_lock);
-	governor = find_devfreq_governor(name);
-	if (IS_ERR(governor)) {
-		ret = PTR_ERR(governor);
-		goto out;
-	}
-	if (df->governor == governor)
-		goto out;
-	if (df->governor->immutable || governor->immutable) {
-		ret = -EINVAL;
-		goto out;
-	}
-
-	ret = df->governor->event_handler(df, DEVFREQ_GOV_STOP, NULL);
-	if (ret)
-		goto out;
-	df->governor = governor;
-	ret = df->governor->event_handler(df, DEVFREQ_GOV_START, NULL);
-	if (ret) {
-		/* Start failed; try to roll back to previous governor */
-		df->governor->event_handler(df, DEVFREQ_GOV_STOP, NULL);
-		goto out;
-	}
-
-out:
-	mutex_unlock(&devfreq_list_lock);
-	return ret;
-}
-EXPORT_SYMBOL_GPL(devfreq_set_governor);
-
 #ifdef CONFIG_OF
 /*
  * devfreq_get_devfreq_by_node - Get the devfreq device from devicetree
@@ -1124,83 +1076,6 @@ struct devfreq *devfreq_get_devfreq_by_phandle(struct device *dev,
 #endif /* CONFIG_OF */
 EXPORT_SYMBOL_GPL(devfreq_get_devfreq_by_node);
 EXPORT_SYMBOL_GPL(devfreq_get_devfreq_by_phandle);
-
-/**
- * devfreq_get_devfreq_by_name - Find a devfreq device by its device name
- * @name: device name string (e.g. "13040000.mali")
- *
- * Iterates the devfreq list and returns the matching devfreq instance.
- * The caller must not hold devfreq_list_lock. Returns a pointer on
- * success, ERR_PTR(-ENODEV) if no match is found.
- */
-struct devfreq *devfreq_get_devfreq_by_name(const char *name)
-{
-	struct devfreq *devfreq;
-
-	if (!name)
-		return ERR_PTR(-EINVAL);
-
-	mutex_lock(&devfreq_list_lock);
-	list_for_each_entry(devfreq, &devfreq_list, node) {
-		if (!strcmp(dev_name(&devfreq->dev), name)) {
-			mutex_unlock(&devfreq_list_lock);
-			return devfreq;
-		}
-	}
-	mutex_unlock(&devfreq_list_lock);
-
-	return ERR_PTR(-ENODEV);
-}
-EXPORT_SYMBOL_GPL(devfreq_get_devfreq_by_name);
-
-/*
- * GPU devfreq device name keywords used by devfreq_find_gpu_devfreq().
- * Matched case-insensitively against the devfreq device name.
- */
-static const char * const gpu_devfreq_keywords[] = {
-	"mali",
-	"gpu",
-	"kgsl",
-	"adreno",
-	"panfrost",
-	"gc7000",  /* Vivante */
-	"pvr",	    /* PowerVR */
-	"img",	    /* Imagination PowerVR (DT naming) */
-	"galcore", /* Vivante galcore */
-	NULL,
-};
-
-/**
- * devfreq_find_gpu_devfreq - Auto-detect the GPU devfreq device
- *
- * Scans all registered devfreq devices and returns the first one whose
- * name contains a known GPU keyword (mali, gpu, kgsl, adreno, panfrost,
- * etc.). This eliminates the need to hardcode a device-specific name.
- *
- * Returns a pointer on success, ERR_PTR(-ENODEV) if no GPU devfreq
- * device is found.
- */
-struct devfreq *devfreq_find_gpu_devfreq(void)
-{
-	struct devfreq *devfreq;
-	const char * const *kw;
-
-	mutex_lock(&devfreq_list_lock);
-	list_for_each_entry(devfreq, &devfreq_list, node) {
-		const char *name = dev_name(&devfreq->dev);
-
-		for (kw = gpu_devfreq_keywords; *kw; kw++) {
-			if (strstr(name, *kw)) {
-				mutex_unlock(&devfreq_list_lock);
-				return devfreq;
-			}
-		}
-	}
-	mutex_unlock(&devfreq_list_lock);
-
-	return ERR_PTR(-ENODEV);
-}
-EXPORT_SYMBOL_GPL(devfreq_find_gpu_devfreq);
 
 /**
  * devm_devfreq_remove_device() - Resource-managed devfreq_remove_device()

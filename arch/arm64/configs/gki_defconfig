@@ -79,7 +79,6 @@ CONFIG_CPU_FREQ_STAT=y
 CONFIG_CPU_FREQ_TIMES=y
 CONFIG_CPU_FREQ_GOV_POWERSAVE=y
 CONFIG_CPU_FREQ_GOV_CONSERVATIVE=y
-# CONFIG_CPU_FREQ_GOV_ZENITH is not set
 CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
 CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
 CONFIG_ARM_SCPI_CPUFREQ=y
@@ -748,17 +747,3 @@ CONFIG_NETFILTER_XT_SET=y
 # GrayRavens branding (shows in uname -r / uname -n)
 CONFIG_LOCALVERSION="-GrayRavens-Zenithed-Stable"
 CONFIG_DEFAULT_HOSTNAME="grayravens"
-
-# GrayRavens game-mode systems (restored from android12-5.10-permissiver)
-# Compiled out 2026-10-22: each one sat on a hot path (per-switch pick,
-# per thermal_zone_get_temp, per cooling update, 1 s task-list scan) and
-# the 2026-10-21 restore made the device laggy.  The code stays in tree;
-# flip any of these back on to re-enable it.
-# CONFIG_HIKARI is not set
-# CONFIG_KASUMI is not set
-# CONFIG_IYASHI is not set
-# CONFIG_SELENE is not set
-# CONFIG_LUCID is not set
-# CONFIG_KOAKUMA is not set
-# CONFIG_ZENITH_ALLOWLIST is not set
-# CONFIG_THERMAL_CHARGER_GUARD is not set

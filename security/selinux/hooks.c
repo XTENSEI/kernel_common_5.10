@@ -7320,11 +7320,7 @@ static __init int selinux_init(void)
 	pr_info("SELinux:  Initializing.\n");
 
 	memset(&selinux_state, 0, sizeof(selinux_state));
-#ifdef CONFIG_KAIHO
-	enforcing_set(&selinux_state, 0);
-#else
 	enforcing_set(&selinux_state, selinux_enforcing_boot);
-#endif
 	checkreqprot_set(&selinux_state, selinux_checkreqprot_boot);
 	selinux_avc_init(&selinux_state.avc);
 	mutex_init(&selinux_state.status_lock);
