@@ -19,7 +19,9 @@
 
 #define pr_fmt(fmt) "grayravens: " fmt
 
+#include <drm/drm_mode_object.h>
 #include <drm/drm_modes.h>
+#include <drm/drm_property.h>
 #include <linux/kernel.h>
 #include <linux/kobject.h>
 #include <linux/kprobes.h>
@@ -89,6 +91,42 @@ static int gr_screen_probe(struct kprobe *kp, struct pt_regs *regs)
 static struct kprobe gr_screen_kp = {
 	.symbol_name	= "drm_atomic_connector_commit_dpms",
 	.pre_handler	= gr_screen_probe,
+};
+
+/*
+ * Modern display stacks blank by committing CRTC ACTIVE = 0 rather than by
+ * setting the legacy connector DPMS property, so watch that too.  The CRTC
+ * property handler is inlined into drm_atomic_set_property(), which is the
+ * symbol that survives; we filter on the object type and property name.
+ */
+static int gr_screen_atomic_probe(struct kprobe *kp, struct pt_regs *regs)
+{
+	struct drm_mode_object *obj;
+	struct drm_property *prop;
+	u64 value;
+
+	if (!READ_ONCE(gr_screen_clamp))
+		return 0;
+
+	obj = (struct drm_mode_object *)regs_get_kernel_argument(regs, 2);
+	prop = (struct drm_property *)regs_get_kernel_argument(regs, 3);
+	value = regs_get_kernel_argument(regs, 4);
+
+	if (!obj || !prop)
+		return 0;
+	if (obj->type != DRM_MODE_OBJECT_CRTC)
+		return 0;
+	if (strcmp(prop->name, "ACTIVE"))
+		return 0;
+
+	gr_screen_queue(!value);
+
+	return 0;
+}
+
+static struct kprobe gr_screen_atomic_kp = {
+	.symbol_name	= "drm_atomic_set_property",
+	.pre_handler	= gr_screen_atomic_probe,
 };
 
 static ssize_t enable_show(struct kobject *kobj, struct kobj_attribute *attr,
@@ -173,10 +211,12 @@ static int __init gr_screen_init(void)
 	INIT_WORK(&gr_screen_work, gr_screen_apply);
 
 	ret = register_kprobe(&gr_screen_kp);
-	if (ret) {
+	if (ret)
 		pr_warn("screen: cannot probe DRM DPMS: %d\n", ret);
-		return 0;
-	}
+
+	ret = register_kprobe(&gr_screen_atomic_kp);
+	if (ret)
+		pr_warn("screen: cannot probe DRM atomic property: %d\n", ret);
 
 	return 0;
 }
