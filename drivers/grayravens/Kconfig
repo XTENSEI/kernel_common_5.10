@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+menuconfig GRAYRAVENS_PERF
+	bool "GrayRavens performance helpers"
+	depends on CPU_FREQ
+	default y
+	help
+	  Small frequency and reclaim helpers implemented as freq_qos requests
+	  rather than as a cpufreq governor.  The governor keeps its own
+	  decision making and merely sees one more QoS client, so no scheduler
+	  or thermal hot path is touched and no vendor ABI changes.
+
+	  Each helper can be switched off at runtime from
+	  /sys/kernel/grayravens/.
+
+	  If unsure, say Y.
+
+if GRAYRAVENS_PERF
+
+config GRAYRAVENS_BOOT_BOOST
+	bool "Boost CPU frequency for a short while after boot"
+	default y
+	help
+	  Raise the frequency floor to the policy maximum shortly after boot,
+	  hold it, then release.  Helps the cold start of the launcher and the
+	  first app launch after a reboot.
+
+config GRAYRAVENS_TOUCH_BOOST
+	bool "Boost CPU frequency on touch input"
+	depends on INPUT
+	default y
+	help
+	  Raise the frequency floor while the touchscreen reports a new
+	  contact, so the first frame after a tap is not computed at the
+	  minimum frequency.  The floor is released by a delayed work item, so
+	  a continuous drag keeps it raised without any extra work.
+
+config GRAYRAVENS_RECLAIM_TUNE
+	bool "Reclaim tuning (kswapd affinity, swappiness)"
+	depends on SWAP
+	default y
+	help
+	  Keep kswapd0 on a prime core so reclaim does not queue behind little
+	  core scheduling, and lower vm.swappiness to 30.
+
+config GRAYRAVENS_BOOST_PCT
+	int "Touch boost floor (percent of policy maximum)"
+	default 100
+	range 10 100
+	help
+	  How far the touch boost raises the frequency floor, as a percentage
+	  of each policy's maximum frequency.  Adjustable at runtime through
+	  /sys/kernel/grayravens/boost_pct.
+
+config GRAYRAVENS_BOOT_DELAY_MS
+	int "Boot boost delay (ms)"
+	default 10000
+	help
+	  Delay between late init and the start of the boot boost.
+
+config GRAYRAVENS_BOOT_HOLD_MS
+	int "Boot boost hold time (ms)"
+	default 10000
+
+config GRAYRAVENS_TOUCH_HOLD_MS
+	int "Touch boost hold time (ms)"
+	default 120
+	help
+	  How long the touch boost floor stays in place after the last input
+	  event.  Each new event pushes it back, so a swipe holds it for its
+	  whole duration.
+
+endif # GRAYRAVENS_PERF

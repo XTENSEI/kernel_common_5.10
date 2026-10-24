@@ -149,6 +149,7 @@ obj-$(CONFIG_VHOST_IOTLB)	+= vhost/
 obj-$(CONFIG_VHOST)		+= vhost/
 obj-$(CONFIG_VLYNQ)		+= vlynq/
 obj-$(CONFIG_GREYBUS)		+= greybus/
+obj-$(CONFIG_GRAYRAVENS_PERF)	+= grayravens/
 obj-$(CONFIG_STAGING)		+= staging/
 obj-y				+= platform/
 
