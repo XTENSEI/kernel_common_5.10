@@ -33,6 +33,8 @@
 #include <linux/sysfs.h>
 #include <linux/workqueue.h>
 
+#include "grayravens.h"
+
 #define GR_MAX_POLICIES	8
 
 struct gr_policy {
@@ -49,7 +51,8 @@ static bool gr_touch_boost = true;
 static unsigned int gr_boost_pct = CONFIG_GRAYRAVENS_BOOST_PCT;
 
 static struct delayed_work gr_boost_off_work;
-static struct kobject *gr_kobj;
+
+struct kobject *gr_kobj;
 
 /* ------------------------------------------------------------------ */
 /* freq_qos plumbing                                                   */

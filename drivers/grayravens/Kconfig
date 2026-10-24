@@ -43,6 +43,35 @@ config GRAYRAVENS_RECLAIM_TUNE
 	  Keep kswapd0 on a prime core so reclaim does not queue behind little
 	  core scheduling, and lower vm.swappiness to 30.
 
+config GRAYRAVENS_AUDIO_RT
+	bool "Raise the priority of audio threads"
+	depends on KPROBES && CPU_IDLE
+	default y
+	help
+	  Watch the scheduler's thread-rename point for the audio mixer threads
+	  and lift each one, once, to a fixed SCHED_FIFO priority, plus request a
+	  short CPU wake-up latency so the cluster does not stay in a deep idle
+	  state between audio periods.  Threads that are already real-time are
+	  skipped, so this can never demote a thread the vendor stack boosted.
+
+	  Runtime switches are in /sys/kernel/grayravens/audio/.
+
+config GRAYRAVENS_AUDIO_PRIO
+	int "Audio thread SCHED_FIFO priority"
+	depends on GRAYRAVENS_AUDIO_RT
+	default 2
+	range 1 20
+
+config GRAYRAVENS_AUDIO_LATENCY_US
+	int "CPU wake-up latency request while enabled (us)"
+	depends on GRAYRAVENS_AUDIO_RT
+	default 100
+	range 0 1000
+	help
+	  A system-wide PM QoS latency request.  Lower values keep CPUs out of
+	  deep idle states, which cuts audio wake-up jitter at a battery cost.
+	  Set to 0 to only change thread priorities.
+
 config GRAYRAVENS_BOOST_PCT
 	int "Touch boost floor (percent of policy maximum)"
 	default 100
