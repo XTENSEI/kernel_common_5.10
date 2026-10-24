@@ -43,6 +43,26 @@ config GRAYRAVENS_RECLAIM_TUNE
 	  Keep kswapd0 on a prime core so reclaim does not queue behind little
 	  core scheduling, and lower vm.swappiness to 30.
 
+config GRAYRAVENS_SCREEN_CLAMP
+	bool "Cap CPU frequency while the screen is off"
+	depends on DRM && KPROBES
+	default y
+	help
+	  Hook the connector DPMS commit and, while the display is blanked, cap
+	  every policy at a fraction of its maximum frequency.  The cap is a
+	  freq_qos maximum request, so it can only lower a frequency the
+	  governor already picked.  The trigger is edge-driven through the DRM
+	  commit path, so nothing polls and nothing runs while the screen state
+	  is steady.
+
+	  Runtime switches are in /sys/kernel/grayravens/screen/.
+
+config GRAYRAVENS_SCREEN_PCT
+	int "Screen-off ceiling (percent of policy maximum)"
+	depends on GRAYRAVENS_SCREEN_CLAMP
+	default 30
+	range 5 100
+
 config GRAYRAVENS_AUDIO_RT
 	bool "Raise the priority of audio threads"
 	depends on KPROBES && CPU_IDLE
