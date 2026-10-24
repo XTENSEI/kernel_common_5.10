@@ -40,6 +40,7 @@
 struct gr_policy {
 	struct cpufreq_policy *policy;
 	struct freq_qos_request min_req;
+	struct freq_qos_request max_req;
 };
 
 static struct gr_policy gr_policies[GR_MAX_POLICIES];
@@ -74,6 +75,12 @@ static void gr_register_policy(struct cpufreq_policy *policy)
 	if (freq_qos_add_request(&policy->constraints, &gp->min_req,
 				 FREQ_QOS_MIN, FREQ_QOS_MIN_DEFAULT_VALUE))
 		return;
+
+	if (freq_qos_add_request(&policy->constraints, &gp->max_req,
+				 FREQ_QOS_MAX, FREQ_QOS_MAX_DEFAULT_VALUE)) {
+		freq_qos_remove_request(&gp->min_req);
+		return;
+	}
 
 	gp->policy = policy;
 	gr_policy_count++;
@@ -137,6 +144,21 @@ static void gr_boost_off(struct work_struct *work)
 static void __maybe_unused gr_boost_for(unsigned int ms)
 {
 	mod_delayed_work(system_wq, &gr_boost_off_work, msecs_to_jiffies(ms));
+}
+
+void gr_set_freq_ceiling(unsigned int pct)
+{
+	int i;
+
+	mutex_lock(&gr_lock);
+	for (i = 0; i < gr_policy_count; i++) {
+		struct gr_policy *gp = &gr_policies[i];
+		s32 value;
+
+		value = pct ? gr_scaled(gp, pct) : FREQ_QOS_MAX_DEFAULT_VALUE;
+		freq_qos_update_request(&gp->max_req, value);
+	}
+	mutex_unlock(&gr_lock);
 }
 
 #if IS_ENABLED(CONFIG_GRAYRAVENS_BOOT_BOOST)
