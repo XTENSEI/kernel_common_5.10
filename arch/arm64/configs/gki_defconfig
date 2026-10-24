@@ -744,6 +744,15 @@ CONFIG_IP_SET_HASH_IP=y
 CONFIG_IP_SET_HASH_NET=y
 CONFIG_NETFILTER_XT_SET=y
 
+# GrayRavens performance helpers (freq_qos based, see drivers/grayravens/)
+CONFIG_GRAYRAVENS_PERF=y
+CONFIG_GRAYRAVENS_BOOT_BOOST=y
+CONFIG_GRAYRAVENS_TOUCH_BOOST=y
+CONFIG_GRAYRAVENS_RECLAIM_TUNE=y
+
+# Queueing discipline available, default left to userspace
+CONFIG_NET_SCH_CAKE=y
+
 # GrayRavens branding (shows in uname -r / uname -n)
 CONFIG_LOCALVERSION="-GrayRavens-Zenithed-Stable"
 CONFIG_DEFAULT_HOSTNAME="grayravens"
