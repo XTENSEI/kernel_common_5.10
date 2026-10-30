@@ -22,6 +22,8 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/reboot.h>
+#include <linux/capability.h>
+#include <linux/sched.h>
 
 static struct proc_dir_entry *oplus_version_dir;
 
@@ -335,6 +337,19 @@ static ssize_t force_reboot_write(struct file *filp, const char __user *ubuf,
 	kbuf[cnt] = '\0';
 
 	if (sysfs_streq(kbuf, "1") || sysfs_streq(kbuf, "reboot")) {
+		/*
+		 * /proc/force_reboot is world-writable and unlabelled, so on a
+		 * policy that does not confine it any process could hard-reboot
+		 * the device. Require CAP_SYS_BOOT as an SELinux-independent
+		 * gate. The writing domain is logged so a legitimate vendor
+		 * caller that lacks the capability can be identified.
+		 */
+		if (!capable(CAP_SYS_BOOT)) {
+			pr_warn_ratelimited("oplus_theia: force_reboot denied for %s (pid %d)\n",
+					    current->comm, current->pid);
+			return -EPERM;
+		}
+
 		pr_warn("oplus_theia: Force reboot requested by userspace\n");
 		emergency_restart();
 	}
