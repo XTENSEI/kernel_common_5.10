@@ -22,6 +22,7 @@
 #include <linux/cpufreq.h>
 #include <linux/pm_qos.h>
 #include <linux/timer.h>
+#include <linux/workqueue.h>
 #include <linux/jiffies.h>
 #include <linux/spinlock.h>
 #include <linux/string.h>
@@ -139,16 +140,28 @@ static void apply_cpu_qos_boost(int scene)
 	}
 }
 
+/*
+ * freq_qos_update_request() ends in blocking_notifier_call_chain(), which
+ * sleeps, so it must not run under scene_lock or from a timer callback.
+ */
+static void scene_boost_work_fn(struct work_struct *work)
+{
+	apply_cpu_qos_boost(0);
+}
+static DECLARE_WORK(scene_boost_work, scene_boost_work_fn);
+
 static void scene_watchdog_fn(struct timer_list *t)
 {
 	unsigned long flags;
+	bool was_active;
 
 	spin_lock_irqsave(&scene_lock, flags);
-	if (current_scene != 0) {
-		current_scene = 0;
-		apply_cpu_qos_boost(0);
-	}
+	was_active = current_scene != 0;
+	current_scene = 0;
 	spin_unlock_irqrestore(&scene_lock, flags);
+
+	if (was_active)
+		schedule_work(&scene_boost_work);
 }
 
 static void add_or_update_task(struct task_boost_entry *table, spinlock_t *lock,
@@ -257,6 +270,7 @@ static ssize_t sched_assist_scene_write(struct file *filp, const char __user *ub
 	spin_lock_irqsave(&scene_lock, flags);
 	current_scene = val;
 	scene_timestamp = jiffies;
+	spin_unlock_irqrestore(&scene_lock, flags);
 
 	if (val > 0 && !disable_setting) {
 		apply_cpu_qos_boost(val);
@@ -265,7 +279,6 @@ static ssize_t sched_assist_scene_write(struct file *filp, const char __user *ub
 		apply_cpu_qos_boost(0);
 		del_timer(&scene_watchdog);
 	}
-	spin_unlock_irqrestore(&scene_lock, flags);
 
 	return cnt;
 }
@@ -282,7 +295,7 @@ static const struct proc_ops sched_assist_scene_proc_ops = {
 static int sched_assist_scene_sysctl(struct ctl_table *table, int write,
 				     void *buffer, size_t *lenp, loff_t *ppos)
 {
-	int ret;
+	int ret, scene;
 	unsigned long flags;
 
 	ret = proc_dointvec(table, write, buffer, lenp, ppos);
@@ -291,15 +304,17 @@ static int sched_assist_scene_sysctl(struct ctl_table *table, int write,
 
 	spin_lock_irqsave(&scene_lock, flags);
 	scene_timestamp = jiffies;
-	if (current_scene > 0 && !disable_setting) {
-		apply_cpu_qos_boost(current_scene);
+	scene = current_scene;
+	spin_unlock_irqrestore(&scene_lock, flags);
+
+	if (scene > 0 && !disable_setting) {
+		apply_cpu_qos_boost(scene);
 		mod_timer(&scene_watchdog,
 			  jiffies + msecs_to_jiffies(SCENE_WATCHDOG_TIMEOUT_MS));
 	} else {
 		apply_cpu_qos_boost(0);
 		del_timer(&scene_watchdog);
 	}
-	spin_unlock_irqrestore(&scene_lock, flags);
 
 	return 0;
 }
@@ -823,9 +838,10 @@ static ssize_t disable_setting_write(struct file *filp, const char __user *ubuf,
 	if (disable_setting) {
 		spin_lock_irqsave(&scene_lock, flags);
 		current_scene = 0;
+		spin_unlock_irqrestore(&scene_lock, flags);
+
 		apply_cpu_qos_boost(0);
 		del_timer(&scene_watchdog);
-		spin_unlock_irqrestore(&scene_lock, flags);
 	}
 
 	return cnt;
@@ -953,10 +969,11 @@ static ssize_t tpd_cmds_write(struct file *filp, const char __user *ubuf,
 		spin_lock_irqsave(&scene_lock, flags);
 		current_scene = 3; /* ANIMATION_TOUCH */
 		scene_timestamp = jiffies;
+		spin_unlock_irqrestore(&scene_lock, flags);
+
 		apply_cpu_qos_boost(3);
 		mod_timer(&scene_watchdog,
 			  jiffies + msecs_to_jiffies(1000));
-		spin_unlock_irqrestore(&scene_lock, flags);
 	}
 
 	return cnt;
