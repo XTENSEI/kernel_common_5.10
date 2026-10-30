@@ -346,14 +346,16 @@ static ssize_t callstack_write(struct file *filp, const char __user *ubuf,
 			       size_t cnt, loff_t *ppos)
 {
 	unsigned long flags;
+	char tmp[sizeof(callstack_buf)];
 	size_t len = min(cnt, sizeof(callstack_buf) - 1);
 
-	spin_lock_irqsave(&jank_lock, flags);
-	if (copy_from_user(callstack_buf, ubuf, len)) {
-		spin_unlock_irqrestore(&jank_lock, flags);
+	/* copy_from_user() may fault, so it must not run under the spinlock */
+	if (copy_from_user(tmp, ubuf, len))
 		return -EFAULT;
-	}
-	callstack_buf[len] = '\0';
+	tmp[len] = '\0';
+
+	spin_lock_irqsave(&jank_lock, flags);
+	memcpy(callstack_buf, tmp, len + 1);
 	spin_unlock_irqrestore(&jank_lock, flags);
 
 	return cnt;
