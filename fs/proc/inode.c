@@ -662,11 +662,11 @@ const struct inode_operations proc_link_inode_operations = {
  * the same way they skip a filesystem's own nodes.
  */
 static const char * const oplus_private_names[] = {
-	"nandswap", "oplus_healthinfo", "sched_thresh", "fg_info",
-	"jank_info", "cpu_jank_info", "oplus_afs_config", "devinfo",
-	"shell-temp", "oplusVersion", "theiaPwkReport", "pwkMonitorParam",
-	"sau_pwknum", "shutdown_detect", "opbootfrom", "phoenix",
-	"blackSwitch", "brightSwitch", "force_reboot",
+	"nandswap", "nandswap_vnd", "oplus_healthinfo", "sched_thresh",
+	"fg_info", "jank_info", "cpu_jank_info", "oplus_afs_config",
+	"devinfo", "oplus_scheduler", "shell-temp", "oplusVersion",
+	"theiaPwkReport", "pwkMonitorParam", "sau_pwknum", "shutdown_detect",
+	"opbootfrom", "phoenix", "blackSwitch", "brightSwitch", "force_reboot",
 };
 
 static bool oplus_private_pde(const struct proc_dir_entry *de)
