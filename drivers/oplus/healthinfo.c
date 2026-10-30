@@ -765,9 +765,15 @@ static const struct proc_ops proc_para_update_fops = {
 /* /proc/oplus_healthinfo/sched_thresh/iowait_thresh */
 static int iowait_thresh_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, " iowait_thresh:\n h_ms = %dms,l_ms = %dms\n",
-		   sched_para[OHM_SCHED_IOWAIT].high_thresh_ms,
-		   sched_para[OHM_SCHED_IOWAIT].low_thresh_ms);
+	unsigned long flags;
+	int h_ms, l_ms;
+
+	spin_lock_irqsave(&sched_para[OHM_SCHED_IOWAIT].lock, flags);
+	h_ms = sched_para[OHM_SCHED_IOWAIT].high_thresh_ms;
+	l_ms = sched_para[OHM_SCHED_IOWAIT].low_thresh_ms;
+	spin_unlock_irqrestore(&sched_para[OHM_SCHED_IOWAIT].lock, flags);
+
+	seq_printf(m, " iowait_thresh:\n h_ms = %dms,l_ms = %dms\n", h_ms, l_ms);
 	return 0;
 }
 
@@ -780,6 +786,7 @@ static ssize_t iowait_thresh_write(struct file *filp, const char __user *buff, s
 {
 	char kbuf[64];
 	int h_ms, l_ms;
+	unsigned long flags;
 
 	if (count >= sizeof(kbuf))
 		return -EINVAL;
@@ -788,8 +795,10 @@ static ssize_t iowait_thresh_write(struct file *filp, const char __user *buff, s
 	kbuf[count] = '\0';
 
 	if (sscanf(kbuf, "%d %d", &h_ms, &l_ms) >= 2) {
+		spin_lock_irqsave(&sched_para[OHM_SCHED_IOWAIT].lock, flags);
 		sched_para[OHM_SCHED_IOWAIT].high_thresh_ms = h_ms;
 		sched_para[OHM_SCHED_IOWAIT].low_thresh_ms = l_ms;
+		spin_unlock_irqrestore(&sched_para[OHM_SCHED_IOWAIT].lock, flags);
 	}
 	return count;
 }
@@ -805,9 +814,15 @@ static const struct proc_ops proc_iowait_thresh_fops = {
 /* /proc/oplus_healthinfo/sched_thresh/sched_latency_thresh */
 static int sched_latency_thresh_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, " sched_latency_thresh:\n h_ms = %dms,l_ms = %dms\n",
-		   sched_para[OHM_SCHED_SCHEDLATENCY].high_thresh_ms,
-		   sched_para[OHM_SCHED_SCHEDLATENCY].low_thresh_ms);
+	unsigned long flags;
+	int h_ms, l_ms;
+
+	spin_lock_irqsave(&sched_para[OHM_SCHED_SCHEDLATENCY].lock, flags);
+	h_ms = sched_para[OHM_SCHED_SCHEDLATENCY].high_thresh_ms;
+	l_ms = sched_para[OHM_SCHED_SCHEDLATENCY].low_thresh_ms;
+	spin_unlock_irqrestore(&sched_para[OHM_SCHED_SCHEDLATENCY].lock, flags);
+
+	seq_printf(m, " sched_latency_thresh:\n h_ms = %dms,l_ms = %dms\n", h_ms, l_ms);
 	return 0;
 }
 
@@ -820,6 +835,7 @@ static ssize_t sched_latency_thresh_write(struct file *filp, const char __user *
 {
 	char kbuf[64];
 	int h_ms, l_ms;
+	unsigned long flags;
 
 	if (count >= sizeof(kbuf))
 		return -EINVAL;
@@ -828,8 +844,10 @@ static ssize_t sched_latency_thresh_write(struct file *filp, const char __user *
 	kbuf[count] = '\0';
 
 	if (sscanf(kbuf, "%d %d", &h_ms, &l_ms) >= 2) {
+		spin_lock_irqsave(&sched_para[OHM_SCHED_SCHEDLATENCY].lock, flags);
 		sched_para[OHM_SCHED_SCHEDLATENCY].high_thresh_ms = h_ms;
 		sched_para[OHM_SCHED_SCHEDLATENCY].low_thresh_ms = l_ms;
+		spin_unlock_irqrestore(&sched_para[OHM_SCHED_SCHEDLATENCY].lock, flags);
 	}
 	return count;
 }
