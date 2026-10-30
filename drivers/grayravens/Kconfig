@@ -119,6 +119,15 @@ config GRAYRAVENS_TOUCH_HOLD_MS
 	  event.  Each new event pushes it back, so a swipe holds it for its
 	  whole duration.
 
+config GRAYRAVENS_IOPRIO
+	bool "Foreground I/O priority boost"
+	default y
+	help
+	  Raise the io priority of a process group named from userspace, so a
+	  game's reads are served before background work.  BFQ and mq-deadline
+	  both honour ioprio in this tree.  The group is put back on its
+	  nice-derived best-effort level on release.
+
 config GRAYRAVENS_UCLAMP
 	bool "Foreground uclamp floor"
 	depends on UCLAMP_TASK
