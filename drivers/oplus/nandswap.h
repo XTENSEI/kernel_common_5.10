@@ -33,16 +33,10 @@ enum {
 	NS_TYPE_END
 };
 
-extern struct task_struct *nswapoutd;
 extern int swapin_walk_pmd_entry(pmd_t *pmd, unsigned long start,
 				 unsigned long end, struct mm_walk *walk);
 extern unsigned long nswap_reclaim_page_list(struct list_head *page_list,
 					     struct vm_area_struct *vma, bool scan);
 extern int isolate_lru_page(struct page *page);
 extern void putback_lru_page(struct page *page);
-
-static inline bool current_is_nswapoutd(void)
-{
-	return current == nswapoutd;
-}
 #endif /* _NAND_SWAP_H */

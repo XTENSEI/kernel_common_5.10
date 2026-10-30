@@ -15,8 +15,14 @@
 #include <asm/page.h>
 
 #if defined(CONFIG_OPLUS_NANDSWAP)
-#include <../drivers/oplus/nandswap.h>
 #define SWAP_NANDSWAP_PRIO	2020	/* just a magic number */
+
+extern struct task_struct *nswapoutd;
+
+static inline bool current_is_nswapoutd(void)
+{
+	return current == nswapoutd;
+}
 #endif
 
 struct notifier_block;
