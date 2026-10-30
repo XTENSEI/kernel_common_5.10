@@ -100,22 +100,24 @@ static const struct proc_ops task_track_enable_proc_ops = {
 /* /proc/jank_info/cpu_jank_info/task_track */
 static int task_track_show(struct seq_file *m, void *v)
 {
+	struct jank_task_entry snap[MAX_JANK_TRACK_TASKS];
 	int i, count = 0;
 	unsigned long flags;
+
+	/* seq_printf() may allocate, so it must not run under the spinlock */
+	spin_lock_irqsave(&task_track_lock, flags);
+	memcpy(snap, tracked_tasks, sizeof(snap));
+	spin_unlock_irqrestore(&task_track_lock, flags);
 
 	seq_puts(m, "[Tracked Tasks]\n");
 	seq_puts(m, "PID\tCOMM\n");
 
-	spin_lock_irqsave(&task_track_lock, flags);
 	for (i = 0; i < MAX_JANK_TRACK_TASKS; i++) {
-		if (tracked_tasks[i].active) {
+		if (snap[i].active) {
 			count++;
-			seq_printf(m, "%d\t%s\n",
-				   tracked_tasks[i].pid,
-				   tracked_tasks[i].comm);
+			seq_printf(m, "%d\t%s\n", snap[i].pid, snap[i].comm);
 		}
 	}
-	spin_unlock_irqrestore(&task_track_lock, flags);
 
 	seq_printf(m, "Total tracked: %d\n", count);
 	return 0;
@@ -329,11 +331,15 @@ static const struct proc_ops version_proc_ops = {
 /* /proc/jank_info/cpu_jank_info/callstack */
 static int callstack_show(struct seq_file *m, void *v)
 {
+	char buf[sizeof(callstack_buf)];
 	unsigned long flags;
 
+	/* seq_printf() may allocate, so it must not run under the spinlock */
 	spin_lock_irqsave(&jank_lock, flags);
-	seq_printf(m, "%s\n", callstack_buf);
+	memcpy(buf, callstack_buf, sizeof(buf));
 	spin_unlock_irqrestore(&jank_lock, flags);
+
+	seq_printf(m, "%s\n", buf);
 	return 0;
 }
 
