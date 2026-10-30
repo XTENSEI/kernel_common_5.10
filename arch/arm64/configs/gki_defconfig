@@ -755,8 +755,10 @@ CONFIG_GRAYRAVENS_RECLAIM_TUNE=y
 CONFIG_GRAYRAVENS_AUDIO_RT=y
 CONFIG_GRAYRAVENS_SCREEN_CLAMP=y
 
-# Queueing discipline available, default left to userspace
+# CAKE as the default qdisc
 CONFIG_NET_SCH_CAKE=y
+CONFIG_NET_SCH_DEFAULT=y
+CONFIG_DEFAULT_CAKE=y
 
 # GrayRavens branding (shows in uname -r / uname -n)
 CONFIG_LOCALVERSION="-GrayRavens-NirvatiaDirge-Stable"
