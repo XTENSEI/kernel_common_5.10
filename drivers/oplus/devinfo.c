@@ -294,13 +294,17 @@ static void probe_universal_ram(void)
 	}
 }
 
+static DEFINE_MUTEX(hardware_probe_lock);
+
 static void ensure_hardware_probed(void)
 {
+	mutex_lock(&hardware_probe_lock);
 	if (!hardware_probed) {
 		probe_universal_storage();
 		probe_universal_ram();
 		hardware_probed = true;
 	}
+	mutex_unlock(&hardware_probe_lock);
 }
 
 /* /proc/devinfo/ufs */
