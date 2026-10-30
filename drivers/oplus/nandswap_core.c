@@ -388,7 +388,7 @@ static void enqueue_reclaim_data(pid_t nr, struct reclaim_info *info)
 		return;
 	if (waken_task->state == TASK_INTERRUPTIBLE)
 		wake_up_process(waken_task);
-	if (nswapdropd->state == TASK_INTERRUPTIBLE)
+	if (nswapdropd && nswapdropd->state == TASK_INTERRUPTIBLE)
 		wake_up_process(nswapdropd);
 }
 
