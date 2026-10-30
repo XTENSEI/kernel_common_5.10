@@ -2,3 +2,4 @@
 obj-$(CONFIG_GRAYRAVENS_PERF)	+= gr_perf.o
 obj-$(CONFIG_GRAYRAVENS_AUDIO_RT)	+= gr_audio.o
 obj-$(CONFIG_GRAYRAVENS_SCREEN_CLAMP)	+= gr_screen.o
+obj-$(CONFIG_GRAYRAVENS_UCLAMP)	+= gr_uclamp.o

@@ -119,4 +119,13 @@ config GRAYRAVENS_TOUCH_HOLD_MS
 	  event.  Each new event pushes it back, so a swipe holds it for its
 	  whole duration.
 
+config GRAYRAVENS_UCLAMP
+	bool "Foreground uclamp floor"
+	depends on UCLAMP_TASK
+	default y
+	help
+	  Raise the uclamp_min of a task named from userspace for a short
+	  hold window, then drop it.  Same effect as a wake-path boost with
+	  no code on the wake path.
+
 endif # GRAYRAVENS_PERF
