@@ -3,7 +3,7 @@ menu "OPLUS Features"
 
 config OPLUS_FEATURE
 	bool "OPLUS Features"
-	default y
+	default n
 	help
 	  This option enables core drivers and interfaces required for ColorOS
 	  and OPlus system frameworks to operate properly on Linux kernels.
@@ -15,7 +15,7 @@ config OPLUS_FEATURE
 config OPLUS_NANDSWAP
 	bool "OPLUS nandswap support"
 	depends on SWAP
-	default y
+	default n
 	help
 	  This option enables the OPlus nandswap subsystem, allowing dynamic
 	  RAM expansion (ColorOS dynamic RAM Expansion). It manages swap device
@@ -25,7 +25,7 @@ config OPLUS_NANDSWAP
 
 config OPLUS_HEALTHINFO
 	bool "OPLUS healthinfo support"
-	default y
+	default n
 	help
 	  This option enables the OPlus healthinfo procfs interface located at
 	  /proc/oplus_healthinfo. It provides userspace system daemons with
@@ -35,7 +35,7 @@ config OPLUS_HEALTHINFO
 
 config OPLUS_DEVINFO
 	bool "OPLUS device info support"
-	default y
+	default n
 	help
 	  This option enables the OPlus device info interface (/proc/devinfo).
 	  It dynamically discovers attached block storage (UFS/eMMC) and system
@@ -46,7 +46,7 @@ config OPLUS_DEVINFO
 
 config OPLUS_SCHED_ASSIST
 	bool "OPLUS sched assist support"
-	default y
+	default n
 	help
 	  This option enables the OPlus scheduler assist interface located at
 	  /proc/oplus_scheduler/sched_assist. It provides real-time scene-based
@@ -58,7 +58,7 @@ config OPLUS_SCHED_ASSIST
 config OPLUS_JANK_INFO
 	bool "OPLUS jank info and CLM support"
 	depends on OPLUS_HEALTHINFO
-	default y
+	default n
 	help
 	  This option enables the OPlus CPU jank info interface located at
 	  /proc/jank_info/cpu_jank_info. It exposes real-time Core Load
@@ -69,7 +69,7 @@ config OPLUS_JANK_INFO
 
 config OPLUS_THEIA
 	bool "OPLUS Theia stability report support"
-	default y
+	default n
 	help
 	  This option enables the OPlus Theia and system stability telemetry
 	  interfaces (/proc/theiaPwkReport, /proc/pwkMonitorParam,
@@ -80,7 +80,7 @@ config OPLUS_THEIA
 
 config OPLUS_AFS_CONFIG
 	bool "OPLUS anti-freeze service config support"
-	default y
+	default n
 	help
 	  This option enables the OPlus application anti-freeze configuration
 	  interface located at /proc/oplus_afs_config. It provides dynamic
@@ -92,7 +92,7 @@ config OPLUS_AFS_CONFIG
 config OPLUS_SHELL_TEMP
 	bool "OPLUS shell temp driver for horae thermal daemon"
 	depends on THERMAL
-	default y
+	default n
 	help
 	  This option enables the OPlus thermal shell temperature interface
 	  located at /proc/shell-temp. It is required by the ColorOS horae
