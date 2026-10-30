@@ -655,6 +655,33 @@ const struct inode_operations proc_link_inode_operations = {
 	.get_link	= proc_get_link,
 };
 
+/*
+ * OPLUS vendor nodes: the daemons that drive them run under domains the GKI
+ * policy never learned, and a build without KernelSU has no way to inject
+ * allow rules. Mark them fs-internal so the LSM permission hooks skip them,
+ * the same way they skip a filesystem's own nodes.
+ */
+static const char * const oplus_private_names[] = {
+	"nandswap", "oplus_healthinfo", "sched_thresh", "fg_info",
+	"jank_info", "cpu_jank_info", "oplus_afs_config", "devinfo",
+	"shell-temp", "oplusVersion", "theiaPwkReport", "pwkMonitorParam",
+	"sau_pwknum", "shutdown_detect", "opbootfrom", "phoenix",
+	"blackSwitch", "brightSwitch", "force_reboot",
+};
+
+static bool oplus_private_pde(const struct proc_dir_entry *de)
+{
+	const struct proc_dir_entry *pde;
+	int i;
+
+	for (pde = de; pde; pde = pde->parent)
+		for (i = 0; i < ARRAY_SIZE(oplus_private_names); i++)
+			if (pde->name && !strcmp(pde->name, oplus_private_names[i]))
+				return true;
+
+	return false;
+}
+
 struct inode *proc_get_inode(struct super_block *sb, struct proc_dir_entry *de)
 {
 	struct inode *inode = new_inode(sb);
@@ -667,6 +694,8 @@ struct inode *proc_get_inode(struct super_block *sb, struct proc_dir_entry *de)
 	inode->i_ino = de->low_ino;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = current_time(inode);
 	PROC_I(inode)->pde = de;
+	if (oplus_private_pde(de))
+		inode->i_flags |= S_PRIVATE;
 	if (is_empty_pde(de)) {
 		make_empty_dir_inode(inode);
 		return inode;
