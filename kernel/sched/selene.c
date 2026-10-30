@@ -11,6 +11,7 @@
  *   foreground_app    (WO)  current foreground package name
  *   active_game       (RO)  detected game, or "(none)"
  *   active_profile    (RO)  "game" or "normal"
+ *   game_pid          (RO)  pid of the detected game, 0 when idle
  *   game_count        (RO)  entries in the game list
  *   game_check        (WO)  test a package against the list
  *   game_check_result (RO)  "yes" / "no" from the last check
@@ -72,6 +73,7 @@ static unsigned int selene_last_nr_threads;
 /* Current detected game (NULL if none) */
 static char *selene_active_game;
 static bool selene_active_is_game;
+static pid_t selene_active_pid;
 
 /* Dedicated result buffer for game_check — NOT shared with active_is_game */
 static bool selene_check_result;
@@ -290,6 +292,7 @@ static void selene_scan_work_fn(struct work_struct *work)
 	/* Phase 2: check cmdline outside RCU (can sleep) */
 	if (found) {
 		/* Found via comm — use comm as the game name */
+		selene_active_pid = found_pid;
 		if (strcmp(comm, last_game) != 0) {
 			strscpy(last_game, comm, sizeof(last_game));
 			selene_set_game(comm, strlen(comm));
@@ -306,6 +309,7 @@ static void selene_scan_work_fn(struct work_struct *work)
 							sizeof(cmdline)) > 0 &&
 				    selene_is_game_name(cmdline,
 						strlen(cmdline))) {
+					selene_active_pid = found_pid;
 					if (strcmp(cmdline, last_game) != 0) {
 						strscpy(last_game, cmdline,
 							sizeof(last_game));
@@ -318,6 +322,7 @@ static void selene_scan_work_fn(struct work_struct *work)
 		}
 	} else if (last_game[0]) {
 		last_game[0] = '\0';
+		selene_active_pid = 0;
 		selene_set_game(NULL, 0);
 	}
 
@@ -467,6 +472,25 @@ static ssize_t active_profile_show(struct kobject *kobj,
 static struct kobj_attribute active_profile_attr =
 	__ATTR_RO(active_profile);
 
+/*
+ * The pid userspace needs to point at: boost drivers act on a task, and
+ * the game's pid is not stable across launches, so it is reported rather
+ * than guessed.
+ */
+static ssize_t game_pid_show(struct kobject *kobj,
+			     struct kobj_attribute *attr, char *buf)
+{
+	pid_t pid;
+
+	mutex_lock(&selene_lock);
+	pid = selene_active_is_game ? selene_active_pid : 0;
+	mutex_unlock(&selene_lock);
+
+	return sysfs_emit(buf, "%d\n", pid);
+}
+static struct kobj_attribute game_pid_attr =
+	__ATTR_RO(game_pid);
+
 static ssize_t game_count_show(struct kobject *kobj,
 			       struct kobj_attribute *attr, char *buf)
 {
@@ -560,6 +584,7 @@ static struct attribute *selene_attrs[] = {
 	&foreground_app_attr.attr,
 	&active_game_attr.attr,
 	&active_profile_attr.attr,
+	&game_pid_attr.attr,
 	&game_count_attr.attr,
 	&game_check_attr.attr,
 	&game_check_result_attr.attr,
