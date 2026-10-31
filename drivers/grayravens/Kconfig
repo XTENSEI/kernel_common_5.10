@@ -119,4 +119,40 @@ config GRAYRAVENS_TOUCH_HOLD_MS
 	  event.  Each new event pushes it back, so a swipe holds it for its
 	  whole duration.
 
+config GRAYRAVENS_CPUSET
+	bool "Partition the cpusets from real CPU capacities"
+	depends on CPUSETS
+	default y
+	help
+	  Reserve the highest-capacity core for top-app and keep foreground off
+	  it, put the display, surfaceflinger, audio and camera-daemon groups
+	  on every core, and confine background groups to the little cluster.
+	  The partition is derived from arch_scale_cpu_capacity(), so it needs
+	  no per-SoC table.
+
+	  It is re-asserted a bounded number of times after boot because the
+	  vendor rc files write these same files, which would otherwise undo
+	  the partition.  The number of passes and the interval are runtime
+	  writable in /sys/kernel/grayravens/cpuset/, and `apply` re-runs one
+	  pass on demand.
+
+	  A device without /dev/cpuset is left untouched.
+
+config GRAYRAVENS_IOPRIO
+	bool "Foreground I/O priority boost"
+	default y
+	help
+	  Raise the io priority of a process group named from userspace, so a
+	  game's reads are served before background work.  BFQ and mq-deadline
+	  both honour ioprio in this tree.  The group is put back on its
+	  nice-derived best-effort level on release.config GRAYRAVENS_UCLAMP
+	bool "Foreground uclamp floor"
+	depends on UCLAMP_TASK
+	default y
+	help
+	  Raise the uclamp_min of a task named from userspace for a short
+	  hold window, then drop it.  Same effect as a wake-path boost with
+	  no code on the wake path.
+
+
 endif # GRAYRAVENS_PERF
