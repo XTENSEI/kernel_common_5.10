@@ -119,6 +119,25 @@ config GRAYRAVENS_TOUCH_HOLD_MS
 	  event.  Each new event pushes it back, so a swipe holds it for its
 	  whole duration.
 
+config GRAYRAVENS_CPUSET
+	bool "Partition the cpusets from real CPU capacities"
+	depends on CPUSETS
+	default y
+	help
+	  Reserve the highest-capacity core for top-app and keep foreground off
+	  it, put the display, surfaceflinger, audio and camera-daemon groups
+	  on every core, and confine background groups to the little cluster.
+	  The partition is derived from arch_scale_cpu_capacity(), so it needs
+	  no per-SoC table.
+
+	  It is re-asserted a bounded number of times after boot because the
+	  vendor rc files write these same files, which would otherwise undo
+	  the partition.  The number of passes and the interval are runtime
+	  writable in /sys/kernel/grayravens/cpuset/, and `apply` re-runs one
+	  pass on demand.
+
+	  A device without /dev/cpuset is left untouched.
+
 config GRAYRAVENS_IOPRIO
 	bool "Foreground I/O priority boost"
 	default y
