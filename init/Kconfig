@@ -2422,33 +2422,6 @@ config ASN1
 	  inform it as to what tags are to be expected in a stream and what
 	  functions to call on what tags.
 
-config SELENE
-	bool "Selene game detection engine"
-	depends on SMP
-	default n
-	help
-	  Notifier chain and /sys/kernel/selene/ so userspace can report the
-	  foreground game and peer drivers can react.  The game list is fed
-	  from userspace and reloaded from
-	  /data/misc/selene/custom_games.txt.
-
-config LUCID
-	bool "Lucid game mode OOM tuning"
-	depends on SELENE
-	default n
-	help
-	  Raises the OOM score of background patterns and lowers the game's
-	  while a game runs, then restores both.  No signals are sent, so
-	  this can only steer the OOM killer, never kill anything itself.
-
-config KOAKUMA
-	bool "Koakuma game preloader"
-	depends on SELENE
-	default n
-	help
-	  Reads a game's file-backed mappings into the page cache when it
-	  starts, capped at max_preload_mb (default 64).
-
 source "kernel/Kconfig.locks"
 
 config ARCH_HAS_NON_OVERLAPPING_ADDRESS_SPACE
