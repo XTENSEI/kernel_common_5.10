@@ -188,14 +188,26 @@ static bool gr_is_touch(unsigned int type, unsigned int code, int value)
 	return false;
 }
 
+/*
+ * input_event() calls the handler with dev->event_lock held and interrupts
+ * disabled, so the QoS update, which takes a mutex and chains blocking
+ * notifiers, has to run from a work item instead.
+ */
+static void gr_touch_boost_work(struct work_struct *work)
+{
+	gr_boost_apply(gr_boost_pct);
+	gr_boost_for(CONFIG_GRAYRAVENS_TOUCH_HOLD_MS);
+}
+
+static DECLARE_WORK(gr_touch_work, gr_touch_boost_work);
+
 static void gr_input_event(struct input_handle *handle, unsigned int type,
 			   unsigned int code, int value)
 {
 	if (!gr_touch_boost || !gr_is_touch(type, code, value))
 		return;
 
-	gr_boost_apply(gr_boost_pct);
-	gr_boost_for(CONFIG_GRAYRAVENS_TOUCH_HOLD_MS);
+	schedule_work(&gr_touch_work);
 }
 
 static int gr_input_connect(struct input_handler *handler,
