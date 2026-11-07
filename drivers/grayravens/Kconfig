@@ -156,4 +156,7 @@ config GRAYRAVENS_UCLAMP
 	  hold window, then drop it.  Same effect as a wake-path boost with
 	  no code on the wake path.
 
+	  boost applies to one thread, boost_group to every thread of the
+	  process.
+
 endif # GRAYRAVENS_PERF
