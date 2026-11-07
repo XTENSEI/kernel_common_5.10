@@ -279,20 +279,19 @@ static inline void ns_data_check(void)
 	struct kstatfs st;
 
 	if (kern_path("/data", LOOKUP_FOLLOW, &kpath))
-		goto out;
-	if (vfs_statfs(&kpath, &st))
-		goto out;
+		return;
 
-	if (unlikely(nsi.quota == 0))
-		if (st.f_blocks > NS_DATA_128G) {
-			nsi.write_upper = NS_WRITE_UPPER_128G;
-			nsi.quota_today = nsi.quota = NS_QUOTA_DAY_128G;
-			nsi.data_threshold = NS_DATA_THRESHOLD_128G;
-		}
-	nsi.data_avail = st.f_bavail;
+	if (!vfs_statfs(&kpath, &st)) {
+		if (unlikely(nsi.quota == 0))
+			if (st.f_blocks > NS_DATA_128G) {
+				nsi.write_upper = NS_WRITE_UPPER_128G;
+				nsi.quota_today = nsi.quota = NS_QUOTA_DAY_128G;
+				nsi.data_threshold = NS_DATA_THRESHOLD_128G;
+			}
+		nsi.data_avail = st.f_bavail;
+	}
 
-out:
-	;
+	path_put(&kpath);
 }
 
 static void ns_life_ctrl_update(bool timer)
