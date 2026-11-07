@@ -870,12 +870,18 @@ static int drop_swapcache_pte(pmd_t *pmd, unsigned long start,
 		page = find_get_page(swapper_space, swp_offset(entry));
 		if (!page)
 			continue;
-		put_page(page);
 
-		if (page_count(page) > 1)
+		/* find_get_page() plus the swap cache itself account for two */
+		if (page_count(page) > 2) {
+			put_page(page);
 			continue;
-		if (isolate_lru_page(page))
+		}
+		if (isolate_lru_page(page)) {
+			put_page(page);
 			continue;
+		}
+		/* the isolation reference owns the page from here on */
+		put_page(page);
 
 		/*
 		 * MADV_FREE clears pte dirty bit and then marks the page
