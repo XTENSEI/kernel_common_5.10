@@ -43,9 +43,18 @@ static DEFINE_SPINLOCK(theia_lock);
 /* /proc/theiaPwkReport */
 static int theia_pwk_report_show(struct seq_file *m, void *v)
 {
+	unsigned int event, press, release, long_press, hang;
 	unsigned long flags;
 
+	/* seq_printf() may allocate, so it must not run under the spinlock */
 	spin_lock_irqsave(&theia_lock, flags);
+	event = pwk_event_val;
+	press = pwk_press_cnt_val;
+	release = pwk_release_cnt_val;
+	long_press = pwk_long_press_cnt_val;
+	hang = pwk_hang_cnt_val;
+	spin_unlock_irqrestore(&theia_lock, flags);
+
 	seq_printf(m,
 		   "pwk_event: %u\n"
 		   "pwk_press_cnt: %u\n"
@@ -53,12 +62,7 @@ static int theia_pwk_report_show(struct seq_file *m, void *v)
 		   "pwk_long_press_cnt: %u\n"
 		   "pwk_hang_cnt: %u\n"
 		   "status: normal\n",
-		   pwk_event_val,
-		   pwk_press_cnt_val,
-		   pwk_release_cnt_val,
-		   pwk_long_press_cnt_val,
-		   pwk_hang_cnt_val);
-	spin_unlock_irqrestore(&theia_lock, flags);
+		   event, press, release, long_press, hang);
 	return 0;
 }
 
@@ -99,15 +103,20 @@ static const struct proc_ops theia_pwk_report_proc_ops = {
 /* /proc/pwkMonitorParam */
 static int pwk_monitor_param_show(struct seq_file *m, void *v)
 {
+	unsigned int threshold;
+	int enable;
 	unsigned long flags;
 
+	/* seq_printf() may allocate, so it must not run under the spinlock */
 	spin_lock_irqsave(&theia_lock, flags);
+	threshold = pwk_threshold_ms_val;
+	enable = pwk_monitor_enable_val;
+	spin_unlock_irqrestore(&theia_lock, flags);
+
 	seq_printf(m,
 		   "pwk_threshold_ms: %u\n"
 		   "pwk_monitor_enable: %d\n",
-		   pwk_threshold_ms_val,
-		   pwk_monitor_enable_val);
-	spin_unlock_irqrestore(&theia_lock, flags);
+		   threshold, enable);
 	return 0;
 }
 
@@ -370,10 +379,12 @@ static const struct proc_ops force_reboot_proc_ops = {
 static char name##_buf[64] = default_val;				\
 static int name##_show(struct seq_file *m, void *v)			\
 {									\
+	char snap[sizeof(name##_buf)];					\
 	unsigned long flags;						\
 	spin_lock_irqsave(&theia_lock, flags);				\
-	seq_printf(m, "%s\n", name##_buf);				\
+	memcpy(snap, name##_buf, sizeof(snap));			\
 	spin_unlock_irqrestore(&theia_lock, flags);			\
+	seq_printf(m, "%s\n", snap);				\
 	return 0;							\
 }									\
 static int name##_open(struct inode *inode, struct file *file)		\
