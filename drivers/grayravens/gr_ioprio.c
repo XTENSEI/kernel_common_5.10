@@ -19,6 +19,7 @@
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
+#include <linux/slab.h>
 #include <linux/sysfs.h>
 
 #include "grayravens.h"
@@ -46,19 +47,23 @@ static void gr_ioprio_reset_one(struct task_struct *task)
 
 /*
  * set_task_ioprio() can allocate an io_context, so the tasks have to be
- * collected under RCU and touched afterwards.  The cap keeps the stack
- * frame bounded; a game thread group is far below it.
+ * collected under RCU and touched afterwards.  The array is heap allocated:
+ * 256 pointers do not fit in a kernel stack frame next to everything else.
  */
 static void gr_ioprio_apply(struct task_struct *task, bool boost)
 {
-	struct task_struct *threads[GR_IOPRIO_MAX_THREADS];
+	struct task_struct **threads;
 	struct task_struct *thread;
 	int n = 0, i;
 
+	threads = kmalloc_array(GR_IOPRIO_MAX_THREADS, sizeof(*threads),
+				GFP_KERNEL);
+	if (!threads)
+		return;
+
 	rcu_read_lock();
 	for_each_thread(task, thread) {
-		if (n >= GR_IOPRIO_MAX_THREADS) {
-			pr_warn_once("ioprio: thread group over %d, tail skipped\n",
+		if (n >= GR_IOPRIO_MAX_THREADS) {			    pr_warn_once("ioprio: thread group over %d, tail skipped\n",
 				     GR_IOPRIO_MAX_THREADS);
 			break;
 		}
@@ -74,6 +79,8 @@ static void gr_ioprio_apply(struct task_struct *task, bool boost)
 			gr_ioprio_reset_one(threads[i]);
 		put_task_struct(threads[i]);
 	}
+
+	kfree(threads);
 }
 
 static ssize_t boost_store(struct kobject *kobj, struct kobj_attribute *attr,
