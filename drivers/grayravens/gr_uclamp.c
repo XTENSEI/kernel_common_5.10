@@ -14,16 +14,24 @@
 #include <linux/kobject.h>
 #include <linux/mutex.h>
 #include <linux/pid.h>
+#include <linux/rcupdate.h>
 #include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/sched/task.h>
+#include <linux/slab.h>
 #include <linux/sysfs.h>
 #include <linux/workqueue.h>
 #include <uapi/linux/sched/types.h>
 
 #include "grayravens.h"
 
+#define GR_UCLAMP_MAX_THREADS 256
+
 static DEFINE_MUTEX(gr_uclamp_lock);
 static struct task_struct *gr_uclamp_task;
+/* Set by boost_group, cleared by the same release work. */
+static struct task_struct **gr_uclamp_threads;
+static int gr_uclamp_thread_count;
 static unsigned int gr_uclamp_pct = 80;
 static unsigned int gr_uclamp_hold_ms = 2000;
 static struct delayed_work gr_uclamp_release_work;
@@ -43,6 +51,21 @@ static void gr_uclamp_set(struct task_struct *task, unsigned int pct)
 			pct, task->comm, task->pid);
 }
 
+/* Caller holds gr_uclamp_lock. */
+static void gr_uclamp_drop_threads(void)
+{
+	int i;
+
+	for (i = 0; i < gr_uclamp_thread_count; i++) {
+		gr_uclamp_set(gr_uclamp_threads[i], 0);
+		put_task_struct(gr_uclamp_threads[i]);
+	}
+
+	kfree(gr_uclamp_threads);
+	gr_uclamp_threads = NULL;
+	gr_uclamp_thread_count = 0;
+}
+
 static void gr_uclamp_release(struct work_struct *work)
 {
 	struct task_struct *task;
@@ -50,6 +73,7 @@ static void gr_uclamp_release(struct work_struct *work)
 	mutex_lock(&gr_uclamp_lock);
 	task = gr_uclamp_task;
 	gr_uclamp_task = NULL;
+	gr_uclamp_drop_threads();
 	mutex_unlock(&gr_uclamp_lock);
 
 	if (!task)
@@ -85,6 +109,73 @@ static ssize_t boost_store(struct kobject *kobj, struct kobj_attribute *attr,
 	gr_uclamp_set(task, READ_ONCE(gr_uclamp_pct));
 	mod_delayed_work(system_wq, &gr_uclamp_release_work,
 			 msecs_to_jiffies(READ_ONCE(gr_uclamp_hold_ms)));
+
+	return count;
+}
+
+/*
+ * Apply the same floor to every thread of a process, which is what a game
+ * actually wants: the boost currently only reaches the main thread.
+ */
+static ssize_t boost_group_store(struct kobject *kobj,
+				 struct kobj_attribute *attr,
+				 const char *buf, size_t count)
+{
+	struct task_struct **threads;
+	struct task_struct *task, *thread;
+	int n = 0, pid;
+
+	if (kstrtoint(buf, 0, &pid) || pid <= 0)
+		return -EINVAL;
+
+	task = find_get_task_by_vpid(pid);
+	if (!task)
+		return -ESRCH;
+
+	threads = kcalloc(GR_UCLAMP_MAX_THREADS, sizeof(*threads), GFP_KERNEL);
+	if (!threads) {
+		put_task_struct(task);
+		return -ENOMEM;
+	}
+
+	rcu_read_lock();
+	for_each_thread(task, thread) {
+		if (n >= GR_UCLAMP_MAX_THREADS)
+			break;
+		get_task_struct(thread);
+		threads[n++] = thread;
+	}
+	rcu_read_unlock();
+	put_task_struct(task);
+
+	if (!n) {
+		kfree(threads);
+		return -ESRCH;
+	}
+
+	mutex_lock(&gr_uclamp_lock);
+
+	if (gr_uclamp_task) {
+		gr_uclamp_set(gr_uclamp_task, 0);
+		put_task_struct(gr_uclamp_task);
+		gr_uclamp_task = NULL;
+	}
+
+	gr_uclamp_drop_threads();
+
+	gr_uclamp_threads = threads;
+	gr_uclamp_thread_count = n;
+
+	{
+		int i;
+
+		for (i = 0; i < n; i++)
+			gr_uclamp_set(threads[i], READ_ONCE(gr_uclamp_pct));
+	}
+
+	mod_delayed_work(system_wq, &gr_uclamp_release_work,
+			 msecs_to_jiffies(READ_ONCE(gr_uclamp_hold_ms)));
+	mutex_unlock(&gr_uclamp_lock);
 
 	return count;
 }
@@ -139,18 +230,21 @@ static ssize_t hold_ms_store(struct kobject *kobj, struct kobj_attribute *attr,
 static ssize_t active_show(struct kobject *kobj, struct kobj_attribute *attr,
 			   char *buf)
 {
-	int pid = 0;
+	int pid = 0, threads = 0;
 
 	mutex_lock(&gr_uclamp_lock);
 	if (gr_uclamp_task)
 		pid = gr_uclamp_task->pid;
+	threads = gr_uclamp_thread_count;
 	mutex_unlock(&gr_uclamp_lock);
 
-	return sprintf(buf, "%d\n", pid);
+	return sprintf(buf, "%d %d\n", pid, threads);
 }
 
 static struct kobj_attribute boost_attr =
 	__ATTR(boost, 0200, NULL, boost_store);
+static struct kobj_attribute boost_group_attr =
+	__ATTR(boost_group, 0200, NULL, boost_group_store);
 static struct kobj_attribute release_attr =
 	__ATTR(release, 0200, NULL, release_store);
 static struct kobj_attribute pct_attr =
@@ -162,6 +256,7 @@ static struct kobj_attribute active_attr =
 
 static struct attribute *gr_uclamp_attrs[] = {
 	&boost_attr.attr,
+	&boost_group_attr.attr,
 	&release_attr.attr,
 	&pct_attr.attr,
 	&hold_ms_attr.attr,
