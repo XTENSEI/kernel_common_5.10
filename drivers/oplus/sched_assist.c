@@ -341,29 +341,42 @@ static struct ctl_table sched_assist_root_table[] = {
 static struct ctl_table_header *sched_assist_sysctl_header;
 #endif
 
+/*
+ * seq_printf() may allocate, so each entry is copied out under the spinlock
+ * and printed after it is dropped.
+ */
+static void show_boost_table(struct seq_file *m, spinlock_t *lock,
+			     struct task_boost_entry *table,
+			     const char *title, const char *total)
+{
+	unsigned long flags;
+	int i, count = 0;
+
+	seq_puts(m, title);
+	seq_puts(m, "PID\tNICE(ORIG/CUR)\tCOMM\n");
+
+	for (i = 0; i < MAX_TRACKED_TASKS; i++) {
+		struct task_boost_entry e;
+
+		spin_lock_irqsave(lock, flags);
+		e = table[i];
+		spin_unlock_irqrestore(lock, flags);
+
+		if (!e.active)
+			continue;
+
+		count++;
+		seq_printf(m, "%d\t%d/%d\t\t%s\n",
+			   e.pid, e.orig_nice, e.boosted_nice, e.comm);
+	}
+
+	seq_printf(m, "Total %s: %d\n", total, count);
+}
+
 /* /proc/oplus_scheduler/sched_assist/ux_task */
 static int ux_task_show(struct seq_file *m, void *v)
 {
-	int i, count = 0;
-	unsigned long flags;
-
-	seq_puts(m, "[UX Tasks]\n");
-	seq_puts(m, "PID\tNICE(ORIG/CUR)\tCOMM\n");
-
-	spin_lock_irqsave(&ux_lock, flags);
-	for (i = 0; i < MAX_TRACKED_TASKS; i++) {
-		if (ux_tasks[i].active) {
-			count++;
-			seq_printf(m, "%d\t%d/%d\t\t%s\n",
-				   ux_tasks[i].pid,
-				   ux_tasks[i].orig_nice,
-				   ux_tasks[i].boosted_nice,
-				   ux_tasks[i].comm);
-		}
-	}
-	spin_unlock_irqrestore(&ux_lock, flags);
-
-	seq_printf(m, "Total UX tasks: %d\n", count);
+	show_boost_table(m, &ux_lock, ux_tasks, "[UX Tasks]\n", "UX tasks");
 	return 0;
 }
 
@@ -486,26 +499,8 @@ static const struct proc_ops ux_task_proc_ops = {
 /* /proc/oplus_scheduler/sched_assist/ux_task_app */
 static int ux_task_app_show(struct seq_file *m, void *v)
 {
-	int i, count = 0;
-	unsigned long flags;
-
-	seq_puts(m, "[App UX Tasks]\n");
-	seq_puts(m, "PID\tNICE(ORIG/CUR)\tCOMM\n");
-
-	spin_lock_irqsave(&app_ux_lock, flags);
-	for (i = 0; i < MAX_TRACKED_TASKS; i++) {
-		if (app_ux_tasks[i].active) {
-			count++;
-			seq_printf(m, "%d\t%d/%d\t\t%s\n",
-				   app_ux_tasks[i].pid,
-				   app_ux_tasks[i].orig_nice,
-				   app_ux_tasks[i].boosted_nice,
-				   app_ux_tasks[i].comm);
-		}
-	}
-	spin_unlock_irqrestore(&app_ux_lock, flags);
-
-	seq_printf(m, "Total App UX tasks: %d\n", count);
+	show_boost_table(m, &app_ux_lock, app_ux_tasks, "[App UX Tasks]\n",
+			 "App UX tasks");
 	return 0;
 }
 
@@ -590,26 +585,8 @@ static const struct proc_ops ux_task_app_proc_ops = {
 /* /proc/oplus_scheduler/sched_assist/ddl_task */
 static int ddl_task_show(struct seq_file *m, void *v)
 {
-	int i, count = 0;
-	unsigned long flags;
-
-	seq_puts(m, "[DDL Tasks]\n");
-	seq_puts(m, "PID\tNICE(ORIG/CUR)\tCOMM\n");
-
-	spin_lock_irqsave(&ddl_lock, flags);
-	for (i = 0; i < MAX_TRACKED_TASKS; i++) {
-		if (ddl_tasks[i].active) {
-			count++;
-			seq_printf(m, "%d\t%d/%d\t\t%s\n",
-				   ddl_tasks[i].pid,
-				   ddl_tasks[i].orig_nice,
-				   ddl_tasks[i].boosted_nice,
-				   ddl_tasks[i].comm);
-		}
-	}
-	spin_unlock_irqrestore(&ddl_lock, flags);
-
-	seq_printf(m, "Total DDL tasks: %d\n", count);
+	show_boost_table(m, &ddl_lock, ddl_tasks, "[DDL Tasks]\n",
+			 "DDL tasks");
 	return 0;
 }
 
@@ -659,26 +636,8 @@ static const struct proc_ops ddl_task_proc_ops = {
 /* /proc/oplus_scheduler/sched_assist/sched_impt_task */
 static int sched_impt_task_show(struct seq_file *m, void *v)
 {
-	int i, count = 0;
-	unsigned long flags;
-
-	seq_puts(m, "[Important Tasks]\n");
-	seq_puts(m, "PID\tNICE(ORIG/CUR)\tCOMM\n");
-
-	spin_lock_irqsave(&impt_lock, flags);
-	for (i = 0; i < MAX_TRACKED_TASKS; i++) {
-		if (impt_tasks[i].active) {
-			count++;
-			seq_printf(m, "%d\t%d/%d\t\t%s\n",
-				   impt_tasks[i].pid,
-				   impt_tasks[i].orig_nice,
-				   impt_tasks[i].boosted_nice,
-				   impt_tasks[i].comm);
-		}
-	}
-	spin_unlock_irqrestore(&impt_lock, flags);
-
-	seq_printf(m, "Total Important tasks: %d\n", count);
+	show_boost_table(m, &impt_lock, impt_tasks, "[Important Tasks]\n",
+			 "Important tasks");
 	return 0;
 }
 
