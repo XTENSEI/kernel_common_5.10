@@ -156,7 +156,67 @@ config GRAYRAVENS_UCLAMP
 	  hold window, then drop it.  Same effect as a wake-path boost with
 	  no code on the wake path.
 
-	  boost applies to one thread, boost_group to every thread of the
-	  process.
+	  
+config GRAYRAVENS_READAHEAD
+	bool "Per-app readahead boost"
+	depends on BLOCK
+	default y
+	help
+	  Enlarge the readahead window of the block device that backs a named
+	  process while it starts or streams, then restore the previous value.
+	  The device is resolved from the process itself, so no per-platform
+	  table is involved.
+
+	  Switches are in /sys/kernel/grayravens/readahead/.
+
+config GRAYRAVENS_TASK_PIN
+	bool "Task affinity pin"
+	depends on SMP
+	default y
+	help
+	  Pin every thread of a named process to a CPU list, then restore each
+	  thread to the mask it actually had.  Masks are saved per thread
+	  because a thread group does not have to share one.
+
+	  Switches are in /sys/kernel/grayravens/task_pin/.
+
+config GRAYRAVENS_IDLE_GOV
+	bool "cpuidle governor switch"
+	depends on CPU_IDLE
+	default y
+	help
+	  Switch the cpuidle governor from userspace, either as a timed boost
+	  that restores the previous choice or as a plain apply.  It drives the
+	  upstream current_governor attribute, so the governor itself is
+	  untouched.
+
+	  Switches are in /sys/kernel/grayravens/idle_gov/.
+
+config GRAYRAVENS_GPU_FLOOR
+	bool "GPU frequency floor"
+	depends on PM_DEVFREQ
+	default y
+	help
+	  Raise a GPU devfreq node's minimum frequency for a hold window, then
+	  restore it.  The node is found by name pattern, because its name
+	  differs between SoCs and it only exists after the vendor module has
+	  probed.  A node can also be pinned explicitly.
+
+	  Switches are in /sys/kernel/grayravens/gpu/.
+
+config GRAYRAVENS_THERMAL_CAP
+	bool "Thermal frequency cap"
+	depends on THERMAL && CPU_FREQ
+	default y
+	help
+	  Read the thermal zones matched by pattern every interval and cap the
+	  CPU frequency while any of them is at or above the threshold.  The
+	  cap is this driver's own freq_qos maximum request per policy, so it
+	  composes with the screen-off clamp instead of replacing it.
+
+	  Zones are matched by type because the names differ per SoC, and the
+	  match can be redone at runtime.
+
+	  Switches are in /sys/kernel/grayravens/thermal/.
 
 endif # GRAYRAVENS_PERF
